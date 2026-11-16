@@ -1,6 +1,6 @@
 /* Service worker: makes Cash Flow installable and fully usable offline.
    Bump VERSION whenever any app file changes so phones pick up the update. */
-const VERSION = 'cashflow-v3.2.0';
+const VERSION = 'cashflow-v3.2.1';
 const SHELL = [
   './', 'index.html', 'styles.css', 'app.js', 'parser.js', 'manifest.webmanifest',
   'vendor/chart.umd.min.js', 'vendor/xlsx.full.min.js', 'vendor/pdf.min.js', 'vendor/pdf.worker.min.js',

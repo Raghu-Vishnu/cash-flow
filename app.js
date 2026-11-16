@@ -1015,6 +1015,8 @@
     navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController && !reloaded) { reloaded = true; location.reload(); } });
   }
   renderInstall();
+  // ask the browser not to clear this app's data when the device is low on space (Chrome/Edge/Android/Firefox)
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persisted().then(p => p || navigator.storage.persist()).catch(() => {}); } catch (e) { /* not supported */ }
   initFilters(false);
   if (location.hash === '#demo' && !db.txns.length) loadSample();
   applyTheme(getTheme());
