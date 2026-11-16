@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cash Flow</title>
+<meta name="description" content="Track income and expenses from your own bank statements. Your data stays on your device.">
+<meta name="theme-color" content="#F9F9FF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#111318" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Cash Flow">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<script>
+  // apply the saved theme before first paint (avoids a flash in dark mode)
+  try { const t = localStorage.getItem('cashflow.theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0..1,0&icon_names=account_balance,add,arrow_downward,arrow_drop_down,arrow_upward,atm,backup,calendar_month,category,check_circle,close,credit_card,dark_mode,date_range,delete,directions_car,download,edit,error,event,group,health_and_safety,home,info,install_mobile,label,light_mode,local_grocery_store,medical_services,movie,palette,payments,percent,person,qr_code_2,receipt,receipt_long,replay,request_quote,restaurant,savings,school,search,settings,shopping_bag,space_dashboard,sync_alt,trending_up,troubleshoot,upload_file,warning&display=block">
+<link rel="stylesheet" href="styles.css">
+<script src="vendor/chart.umd.min.js"></script>
+<script src="vendor/xlsx.full.min.js"></script>
+<script src="vendor/pdf.min.js"></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<!-- Navigation rail (tablet / desktop) -->
+<nav class="rail" aria-label="Main">
+  <button class="rail-fab" id="uploadBtn" aria-label="Upload statement" title="Upload statement">
+    <span class="ms">upload_file</span>
+  </button>
+  <span class="rail-fab-label">Upload</span>
+  <div class="rail-items">
+    <button class="nav-item" data-page="dash"><span class="nav-ic"><span class="ms">space_dashboard</span></span><span class="nav-label">Dashboard</span></button>
+    <button class="nav-item" data-page="tx"><span class="nav-ic"><span class="ms">receipt_long</span></span><span class="nav-label">Transactions</span></button>
+    <button class="nav-item" data-page="settings"><span class="nav-ic"><span class="ms">settings</span></span><span class="nav-label">Settings</span></button>
+  </div>
+</nav>
+
+<div class="shell">
+  <header class="appbar">
+    <img class="app-logo" src="icons/icon.svg" alt="" width="32" height="32">
+    <h1 id="pageTitle">Dashboard</h1>
+    <div class="appbar-actions">
+      <label class="chip chip-person" title="Whose finances">
+        <span class="ms">person</span>
+        <select id="profileSel" aria-label="Whose finances"></select>
+        <span class="ms chev">arrow_drop_down</span>
+      </label>
+      <button class="icon-btn" id="themeBtn" aria-label="Switch light / dark theme" title="Switch light / dark theme"><span class="ms">dark_mode</span></button>
+    </div>
+  </header>
+
+  <main id="main" tabindex="-1">
+    <!-- Period & account filters (Dashboard + Transactions) -->
+    <div id="filtersWrap" class="filters-wrap">
+      <div class="filters">
+        <label class="chip"><span class="ms">date_range</span>
+          <select id="modeSel" aria-label="Period">
+            <option value="ym">Year &amp; month</option>
+            <option value="30d">Last 30 days</option>
+            <option value="3m">Last 3 months</option>
+            <option value="6m">Last 6 months</option>
+            <option value="fy">This financial year</option>
+            <option value="lfy">Last financial year</option>
+            <option value="custom">Custom dates</option>
+          </select><span class="ms chev">arrow_drop_down</span></label>
+        <label class="chip ym"><span class="ms">calendar_month</span><select id="yearSel" aria-label="Year"></select><span class="ms chev">arrow_drop_down</span></label>
+        <label class="chip ym"><span class="ms">event</span><select id="monthSel" aria-label="Month"></select><span class="ms chev">arrow_drop_down</span></label>
+        <label class="chip cr"><span class="chip-pre">From</span><input type="date" id="fromIn" aria-label="From date"></label>
+        <label class="chip cr"><span class="chip-pre">To</span><input type="date" id="toIn" aria-label="To date"></label>
+        <label class="chip"><span class="ms">account_balance</span><select id="acctSel" aria-label="Account"></select><span class="ms chev">arrow_drop_down</span></label>
+      </div>
+      <p class="range" id="rangeLabel"></p>
+    </div>
+
+    <!-- ============ DASHBOARD ============ -->
+    <section id="dash" aria-labelledby="pageTitle">
+      <div id="empty" class="empty" hidden>
+        <div class="empty-hero card filled">
+          <img src="icons/icon.svg" alt="" width="72" height="72">
+          <h2>Know where your money goes</h2>
+          <p>Create an account (for example "HDFC Savings") and upload its statements as CSV, Excel or PDF. Every file is checked against the account number and its running balance, so nothing goes missing or lands in the wrong place.</p>
+          <div class="row-gap">
+            <button class="btn primary" id="uploadBtn2"><span class="ms">upload_file</span>Upload statement</button>
+            <button class="btn tonal" id="sampleBtn">Try with sample data</button>
+          </div>
+        </div>
+        <div class="card howto">
+          <h3><span class="ms">info</span>Where to get your statement</h3>
+          <ul>
+            <li><b>Net banking:</b> Accounts → Statement → pick a date range → download as <b>Excel / CSV</b> (most reliable) or PDF.</li>
+            <li><b>Password-protected PDFs</b> are supported. You'll be asked for the password, which is usually set by your bank (for example name + date of birth).</li>
+            <li><b>Account Aggregator apps</b> (such as Fold, INDmoney or Jupiter) can usually export transactions as CSV, which you can upload here.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div id="dashBody">
+        <div class="kpis">
+          <div class="kpi"><span class="k-ic inc"><span class="ms">arrow_downward</span></span><span class="k-label">Income</span><span class="k-val" id="kIncome"></span><span class="k-sub" id="kIncomeSub"></span></div>
+          <div class="kpi"><span class="k-ic exp"><span class="ms">arrow_upward</span></span><span class="k-label">Expenses</span><span class="k-val" id="kExpense"></span><span class="k-sub" id="kExpenseSub"></span></div>
+          <div class="kpi"><span class="k-ic net"><span class="ms">savings</span></span><span class="k-label">Net savings</span><span class="k-val" id="kNet"></span><span class="k-sub" id="kNetSub"></span></div>
+          <div class="kpi"><span class="k-ic rate"><span class="ms">percent</span></span><span class="k-label">Savings rate</span><span class="k-val" id="kRate"></span><span class="k-sub" id="kRateSub"></span></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2 id="chartTitle">Income vs expenses</h2>
+            <div class="legend" id="chartLegend"></div>
+          </div>
+          <div class="chart-wrap"><canvas id="flowChart" aria-label="Cash flow chart" role="img"></canvas></div>
+          <p class="hint chart-hint">Tap a bar to drill down.</p>
+        </div>
+
+        <div class="grid2">
+          <div class="card">
+            <div class="card-head"><h2>Where the money went</h2></div>
+            <p class="hint">Tap a category to see its transactions.</p>
+            <div id="expCats" class="bars"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h2>Where the money came from</h2></div>
+            <div id="incCats" class="bars"></div>
+            <div class="card-head mt"><h2>Top places you paid</h2></div>
+            <div id="topMerchants" class="bars"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ TRANSACTIONS ============ -->
+    <section id="txPage" hidden aria-labelledby="pageTitle">
+      <div class="card tx-card">
+        <div class="tx-toolbar">
+          <label class="search"><span class="ms">search</span><input type="search" id="search" placeholder="Search description or merchant" aria-label="Search transactions"></label>
+          <div class="tx-filters">
+            <label class="chip"><select id="typeSel" aria-label="Type">
+              <option value="">Income &amp; expenses</option>
+              <option value="credit">Income only</option>
+              <option value="debit">Expenses only</option>
+            </select><span class="ms chev">arrow_drop_down</span></label>
+            <label class="chip"><span class="ms">category</span><select id="catSel" aria-label="Category"></select><span class="ms chev">arrow_drop_down</span></label>
+            <button class="btn tonal" id="addTxBtn"><span class="ms">add</span>Add</button>
+          </div>
+        </div>
+        <p class="tx-count"><span id="txCount"></span> · Tap a transaction to change its category or delete it.</p>
+        <div id="txBody" class="tx-list"></div>
+        <button class="btn more" id="moreBtn" hidden>Show more</button>
+      </div>
+      <div id="txEmpty" class="card filled empty-small" hidden>
+        <p>No transactions yet. Upload a statement to get started.</p>
+      </div>
+    </section>
+
+    <!-- ============ SETTINGS ============ -->
+    <section id="settings" hidden aria-labelledby="pageTitle">
+      <div class="card">
+        <div class="card-head"><h2><span class="ms">group</span>People &amp; accounts</h2><button class="btn tonal" id="addPersonBtn"><span class="ms">add</span>Person</button></div>
+        <p class="hint">Keep separate finances for yourself, family or friends. Statements are checked against the account number so they can't end up in the wrong account.</p>
+        <div id="peopleList"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2><span class="ms">category</span>Categories</h2><button class="btn tonal" id="reapplyBtn">Re-apply</button></div>
+        <p class="hint">Transactions go to the <b>first</b> category (top to bottom) whose keywords appear in the bank description. Separate keywords with commas; ↑ ↓ change priority. "Re-apply" updates existing transactions.</p>
+        <div class="cat-cols">
+          <div><h3>Expenses</h3><div id="catDebit" class="cat-list"></div></div>
+          <div><h3>Income</h3><div id="catCredit" class="cat-list"></div>
+            <h3 class="mt">Not counted in totals</h3><div id="catAny" class="cat-list"></div></div>
+        </div>
+        <form id="addCatForm" class="add-cat">
+          <input id="newCatName" placeholder="New category name" required maxlength="40" aria-label="New category name">
+          <select id="newCatType" aria-label="Type"><option value="debit">Expense</option><option value="credit">Income</option></select>
+          <input id="newCatKw" placeholder="Keywords, e.g. gym, cult.fit" aria-label="Keywords">
+          <button class="btn primary"><span class="ms">add</span>Add category</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2><span class="ms">label</span>Merchant rules</h2></div>
+        <p class="hint">Created when you change a transaction's category. They override keywords.</p>
+        <div id="ruleList"></div>
+      </div>
+
+      <div class="grid2">
+        <div class="card">
+          <div class="card-head"><h2><span class="ms">palette</span>Appearance</h2></div>
+          <div class="seg" role="radiogroup" aria-label="Theme">
+            <label><input type="radio" name="theme" value="system"><span class="ms">check_circle</span>System</label>
+            <label><input type="radio" name="theme" value="light"><span class="ms">check_circle</span>Light</label>
+            <label><input type="radio" name="theme" value="dark"><span class="ms">check_circle</span>Dark</label>
+          </div>
+        </div>
+        <div class="card" id="installCard">
+          <div class="card-head"><h2><span class="ms">install_mobile</span>Install app</h2></div>
+          <p class="hint" id="installHint">Install Cash Flow on your phone or computer to open it like a regular app, even offline.</p>
+          <button class="btn primary" id="installBtn" hidden><span class="ms">download</span>Install</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2><span class="ms">troubleshoot</span>Statement diagnostics</h2></div>
+        <p class="hint">Something missing or wrong after an import? Create an <b>anonymised</b> report of a statement to share for troubleshooting. Names, account, reference and phone numbers, UPI IDs and birth dates are replaced; dates and amounts are kept. It runs on this device only, and nothing is imported or uploaded.</p>
+        <button class="btn tonal" id="diagBtn">Create anonymised report…</button>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2><span class="ms">backup</span>Your data</h2></div>
+        <p class="hint">Everything is stored only in this browser on this device. Back up regularly, because clearing browser data deletes it. Use backup &amp; restore to move your data to another device.</p>
+        <div class="row-gap left">
+          <button class="btn" id="exportBtn">Back up (JSON)</button>
+          <button class="btn" id="importBtn">Restore</button>
+          <button class="btn" id="csvBtn">Export CSV</button>
+          <button class="btn danger" id="clearBtn">Delete all data</button>
+        </div>
+      </div>
+      <p class="footnote">Cash Flow · your data never leaves this device</p>
+    </section>
+  </main>
+</div>
+
+<!-- Bottom navigation (phone) -->
+<nav class="navbar" aria-label="Main">
+  <button class="nav-item" data-page="dash"><span class="nav-ic"><span class="ms">space_dashboard</span></span><span class="nav-label">Dashboard</span></button>
+  <button class="nav-item" data-page="tx"><span class="nav-ic"><span class="ms">receipt_long</span></span><span class="nav-label">Transactions</span></button>
+  <button class="nav-item" data-page="settings"><span class="nav-ic"><span class="ms">settings</span></span><span class="nav-label">Settings</span></button>
+</nav>
+<button class="fab" id="uploadFab" aria-label="Upload statement"><span class="ms">upload_file</span></button>
+
+<!-- Upload -->
+<dialog id="uploadDlg" class="dlg">
+  <h2>Upload statement</h2>
+  <label class="field">Account
+    <select id="upAcct"></select>
+  </label>
+  <div id="upNew" class="sub-form" hidden>
+    <label class="field">Account name <input id="naName" placeholder="e.g. HDFC Savings" maxlength="40"></label>
+    <div class="two">
+      <label class="field">Bank <input id="naBank" placeholder="e.g. HDFC Bank" maxlength="40"></label>
+      <label class="field">Last 4 digits <input id="naLast4" inputmode="numeric" maxlength="4" placeholder="Auto-detected"></label>
+    </div>
+    <label class="field">Belongs to <select id="naProfile"></select></label>
+  </div>
+  <div class="drop" id="upDrop">
+    <span class="ms drop-ic">upload_file</span>
+    <p id="upFiles">Drop files here, or</p>
+    <button type="button" class="btn tonal" id="upChoose">Choose files</button>
+  </div>
+  <p class="hint">CSV, Excel or PDF. Each file's account number is checked, and its running balance is verified so you'll know if anything was missed.</p>
+  <div class="dlg-actions">
+    <button type="button" class="btn text" data-close>Cancel</button>
+    <button type="button" class="btn primary" id="upGo" disabled>Import</button>
+  </div>
+</dialog>
+
+<!-- Account add/edit -->
+<dialog id="acctDlg" class="dlg">
+  <form id="acctForm">
+    <h2 id="acctDlgTitle">Account</h2>
+    <label class="field">Account name <input id="adName" required maxlength="40" placeholder="e.g. SBI Salary account"></label>
+    <div class="two">
+      <label class="field">Bank <input id="adBank" maxlength="40"></label>
+      <label class="field">Last 4 digits <input id="adLast4" inputmode="numeric" maxlength="4" pattern="\d{4}" placeholder="Auto-detected"></label>
+    </div>
+    <label class="field">Belongs to <select id="adProfile"></select></label>
+    <div class="dlg-actions">
+      <button type="button" class="btn text" data-close>Cancel</button>
+      <button class="btn primary">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Manual transaction -->
+<dialog id="txDlg" class="dlg">
+  <form id="txForm">
+    <h2>Add transaction</h2>
+    <div class="two">
+      <label class="field">Date <input type="date" id="tdDate" required></label>
+      <label class="field">Type
+        <select id="tdType"><option value="debit">Expense</option><option value="credit">Income</option></select>
+      </label>
+    </div>
+    <label class="field">Description <input id="tdDesc" required maxlength="120" placeholder="e.g. Salary September / Cash to vegetable vendor"></label>
+    <div class="two">
+      <label class="field">Amount (₹) <input type="number" id="tdAmt" min="0.01" step="0.01" required inputmode="decimal"></label>
+      <label class="field">Category <select id="tdCat"></select></label>
+    </div>
+    <label class="field">Account <select id="tdAcct"></select></label>
+    <div class="dlg-actions">
+      <button type="button" class="btn text" data-close>Cancel</button>
+      <button class="btn primary">Add</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Transaction details / edit -->
+<dialog id="txEditDlg" class="dlg">
+  <div class="te-head">
+    <span class="tx-avatar big" id="teIcon"></span>
+    <div><h2 id="teTitle"></h2><p class="te-amt" id="teAmt"></p></div>
+  </div>
+  <p class="te-meta" id="teMeta"></p>
+  <p class="te-desc" id="teDesc"></p>
+  <label class="field">Category <select id="teCat"></select></label>
+  <p class="hint" id="teHint"></p>
+  <div class="dlg-actions spread">
+    <button type="button" class="btn text danger" id="teDel"><span class="ms">delete</span>Delete</button>
+    <button type="button" class="btn primary" data-close>Done</button>
+  </div>
+</dialog>
+
+<!-- Import report / info -->
+<dialog id="infoDlg" class="dlg wide">
+  <h2 id="infoTitle">Import report</h2>
+  <div id="infoBody"></div>
+  <div class="dlg-actions"><button type="button" class="btn primary" data-close>Done</button></div>
+</dialog>
+
+<!-- Anonymised diagnostics -->
+<dialog id="diagDlg" class="dlg wide">
+  <h2>Anonymised report</h2>
+  <ul id="diagSummary" class="diag-sum"></ul>
+  <p class="hint">Please read it through before sharing. Search it for your name or account number to double-check.</p>
+  <textarea id="diagText" class="diag-text" readonly spellcheck="false" aria-label="Anonymised report"></textarea>
+  <div class="dlg-actions">
+    <button type="button" class="btn text" data-close>Close</button>
+    <button type="button" class="btn" id="diagCopy">Copy</button>
+    <button type="button" class="btn primary" id="diagSave"><span class="ms">download</span>Download .txt</button>
+  </div>
+</dialog>
+
+<input type="file" id="fileInput" accept=".csv,.txt,.xls,.xlsx,.pdf" multiple hidden>
+<input type="file" id="diagInput" accept=".csv,.txt,.xls,.xlsx,.pdf" hidden>
+<input type="file" id="backupInput" accept=".json" hidden>
+<div id="toast" class="toast" role="status" aria-live="polite" hidden><span id="toastMsg"></span><button id="toastAct" class="toast-act" hidden></button></div>
+<div id="overlay" class="overlay" hidden><div class="drop-msg"><span class="ms">upload_file</span>Drop statements to import</div></div>
+
+<script src="parser.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
