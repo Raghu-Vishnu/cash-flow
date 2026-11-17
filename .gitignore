@@ -1,2 +1,9 @@
 .DS_Store
 *.log
+
+# local settings: never commit
+.env
+.env.*
+!.env.example
+# generated from .env / the GitHub variable by scripts/make-config.py
+config.js

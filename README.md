@@ -36,15 +36,31 @@ Google needs to know which website is allowed to ask for sign-in. Do this once:
    If you leave it in "Testing", only the Google accounts you add as test users can sign in.
 6. **Clients → Create client** → type **Web application**. Under **Authorized JavaScript origins**, add
    `https://raghu-vishnu.github.io` and `http://localhost:8765`. Leave redirect URIs empty, then click Create.
-7. Copy the **Client ID** (it ends in `.apps.googleusercontent.com`) into `CLIENT_ID` at the top of `gdrive.js`.
-   A client ID is public by design, so it's safe to commit. There is no client secret to keep.
-8. Bump `VERSION` in `sw.js` and publish.
+7. Copy the **Client ID** (it ends in `.apps.googleusercontent.com`). There is no client secret to keep: the app doesn't use one.
+   Never put a client secret in this project.
+
+### Where the Client ID goes (never in the source code)
+| Where | Put it in | Committed? |
+|---|---|---|
+| Your computer | `.env`: copy `.env.example` to `.env` and set `GOOGLE_CLIENT_ID=…` | No (`.gitignore`) |
+| Live site | GitHub → repo **Settings → Secrets and variables → Actions → Variables** → `GOOGLE_CLIENT_ID` | No |
+
+`scripts/make-config.py` writes `config.js` from these values. `config.js` is generated and never committed. The Mac/Windows
+start scripts run it for you, and the GitHub Actions workflow (`.github/workflows/pages.yml`) runs it on every push.
+For this to work, set **Settings → Pages → Source** to **GitHub Actions**.
+
+> A browser app can't hide values from its users: the Client ID is visible in the published `config.js`, as on every site
+> that uses Google sign-in. That's safe by design, because Google only accepts it from the Authorized JavaScript origins above.
+> Keeping it in env keeps it out of the code and the git history, and lets you change it without a code change.
+
+With no `GOOGLE_CLIENT_ID` set, Google Drive backup is simply turned off.
 
 Restoring works on any device with the same Google account. Drive keeps earlier versions of the backup file for
 about 30 days: right-click the file in Drive, then choose **Manage versions**.
 
 ## For developers
 - `parser.js`: statement reading (CSV/Excel/PDF with layout detection), verification, categorisation, anonymiser
+- `config.js`: generated settings (see above), never edited by hand · `scripts/make-config.py` builds it
 - `gdrive.js`: optional Google Drive backup (Google Identity Services + Drive REST API, no server)
 - `app.js`: UI logic · `styles.css`: Material 3 theme · `sw.js`: offline cache · `manifest.webmanifest`: app install info
 - `vendor/`: Chart.js 4.4.1, SheetJS 0.18.5, pdf.js 3.11.174 (bundled so the app works offline)

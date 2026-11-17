@@ -1,6 +1,6 @@
 /* Service worker: makes Cash Flow installable and fully usable offline.
    Bump VERSION whenever any app file changes so phones pick up the update. */
-const VERSION = 'cashflow-v3.3.1';
+const VERSION = 'cashflow-v3.4.0';
 const SHELL = [
   './', 'index.html', 'privacy.html', 'styles.css', 'app.js', 'parser.js', 'gdrive.js', 'manifest.webmanifest',
   'vendor/chart.umd.min.js', 'vendor/xlsx.full.min.js', 'vendor/pdf.min.js', 'vendor/pdf.worker.min.js',
@@ -34,6 +34,13 @@ self.addEventListener('fetch', e => {
     return;
   }
   if (url.origin !== self.location.origin) return;
+
+  // config.js (generated settings): network first so a changed setting arrives at once; cached copy when offline
+  if (url.pathname.endsWith('/config.js')) {
+    e.respondWith(fetch(req).then(r => { if (r.ok) { const c = r.clone(); caches.open(VERSION).then(k => k.put(req, c)); } return r; })
+      .catch(() => caches.match(req, { ignoreSearch: true }).then(hit => hit || new Response('window.CF_CONFIG={};', { headers: { 'Content-Type': 'text/javascript' } }))));
+    return;
+  }
 
   // App files: cache first (works offline); page navigations fall back to the cached shell
   e.respondWith(caches.match(req, { ignoreSearch: true }).then(hit => hit || fetch(req).catch(() =>

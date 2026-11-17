@@ -2,9 +2,10 @@
    - Runs entirely in the browser. The backup goes straight from this device to Google; Cash Flow has no server.
    - Scope "drive.file": the app can see ONLY the files it created itself, not the rest of the user's Drive.
    - The access token lives in memory only (about 1 hour) and is never written to storage.
-   Setup: put your OAuth "Web application" client ID below. See README.md → "Google Drive backup". */
+   Setup: the OAuth client ID comes from GOOGLE_CLIENT_ID in .env (locally) or the GitHub repository variable
+   (live site), written into config.js by scripts/make-config.py. See README.md → "Google Drive backup". */
 window.CFDrive = (function () {
-  const CLIENT_ID = '';
+  const CLIENT_ID = String((window.CF_CONFIG && window.CF_CONFIG.googleClientId) || '');
   const SCOPE = 'https://www.googleapis.com/auth/drive.file';
   const FILE_NAME = 'Cash Flow backup.json';
   const TAG = 'cashflowBackup';
