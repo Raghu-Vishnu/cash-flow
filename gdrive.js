@@ -1,24 +1,28 @@
-/* Cash Flow: optional backup to the user's OWN Google Drive.
-   - Runs entirely in the browser. The backup goes straight from this device to Google; Cash Flow has no server.
-   - Scope "drive.file": the app can see ONLY the files it created itself, not the rest of the user's Drive.
-   - The access token lives in memory only (about 1 hour) and is never written to storage.
+/* Cash Flow: Google sign-in and backup to the user's OWN Google Drive.
+   - Runs entirely in the browser. Data goes straight between this device and Google; Cash Flow has no server.
+   - Scopes: "openid email profile" (who is signed in) and "drive.file" (ONLY the files this app created,
+     never the rest of the user's Drive).
+   - Access tokens live in memory only (about 1 hour) and are never written to storage.
    Setup: the OAuth client ID comes from GOOGLE_CLIENT_ID in .env (locally) or the GitHub repository variable
    (live site), written into config.js by scripts/make-config.py. See README.md → "Google Drive backup". */
 window.CFDrive = (function () {
   const CLIENT_ID = String((window.CF_CONFIG && window.CF_CONFIG.googleClientId) || '');
-  const SCOPE = 'https://www.googleapis.com/auth/drive.file';
+  const DRIVE = 'https://www.googleapis.com/auth/drive.file';
+  const SCOPE = 'openid email profile ' + DRIVE;
   const FILE_NAME = 'Cash Flow backup.json';
   const TAG = 'cashflowBackup';
   const API = 'https://www.googleapis.com/drive/v3', UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
   const MULTIPART_MAX = 4 * 1024 * 1024; // larger backups use a resumable upload
-  let token = null, tokenExp = 0, gis = null;
+  let gis = null;
 
   const configured = () => !!CLIENT_ID;
+  const ready = () => !!(window.google && google.accounts && google.accounts.oauth2);
+  function err(code, detail) { const e = new Error(detail || code); e.code = code; return e; }
 
   /** Load Google's sign-in library. Call early (not inside a click) so the sign-in popup isn't blocked later. */
   function preload() {
     if (!configured()) return Promise.reject(err('not-configured'));
-    if (window.google && google.accounts && google.accounts.oauth2) return Promise.resolve();
+    if (ready()) return Promise.resolve();
     if (!gis) gis = new Promise((res, rej) => {
       const s = document.createElement('script');
       s.src = 'https://accounts.google.com/gsi/client'; s.async = true;
@@ -28,79 +32,80 @@ window.CFDrive = (function () {
     });
     return gis;
   }
-  function err(code, detail) { const e = new Error(detail || code); e.code = code; return e; }
 
-  /** Get an access token. Must be called directly from a click, because it may open Google's popup. */
-  function signIn(hint) {
-    if (token && Date.now() < tokenExp - 60000) return Promise.resolve(token);
-    if (!(window.google && google.accounts && google.accounts.oauth2)) return Promise.reject(err(navigator.onLine === false ? 'offline' : 'not-loaded'));
+  /** Open Google sign-in and resolve with a session {token, exp, drive}. Must be called straight from a click.
+      opts.hint: email to pre-select · opts.selectAccount: always show the account chooser
+      opts.needDrive: reject with 'scope' if the user unticked Google Drive */
+  function signIn(opts = {}) {
+    if (!ready()) return Promise.reject(err(navigator.onLine === false ? 'offline' : 'not-loaded'));
     return new Promise((res, rej) => {
       const client = google.accounts.oauth2.initTokenClient({
-        client_id: CLIENT_ID, scope: SCOPE, login_hint: hint || undefined,
+        client_id: CLIENT_ID, scope: SCOPE, login_hint: opts.hint || undefined,
         callback: r => {
           if (r.error) return rej(err(r.error === 'access_denied' ? 'denied' : 'auth', r.error_description || r.error));
-          if (!google.accounts.oauth2.hasGrantedAllScopes(r, SCOPE)) return rej(err('scope'));
-          token = r.access_token; tokenExp = Date.now() + (Number(r.expires_in) || 3600) * 1000; res(token);
+          const drive = google.accounts.oauth2.hasGrantedAllScopes(r, DRIVE);
+          if (opts.needDrive && !drive) return rej(err('scope'));
+          res({ token: r.access_token, exp: Date.now() + (Number(r.expires_in) || 3600) * 1000, drive });
         },
         error_callback: e => rej(err(e && e.type === 'popup_failed_to_open' ? 'popup-blocked' : 'cancelled')),
       });
-      client.requestAccessToken({ prompt: '' });
+      client.requestAccessToken({ prompt: opts.selectAccount ? 'select_account' : '' });
     });
   }
+  const valid = s => !!(s && s.token && Date.now() < s.exp - 60000);
 
-  async function api(url, opts = {}) {
-    if (!token) throw err('auth');
+  async function api(s, url, opts = {}) {
+    if (!valid(s)) throw err('auth');
     let r;
-    try { r = await fetch(url, Object.assign({}, opts, { headers: Object.assign({ Authorization: 'Bearer ' + token }, opts.headers) })); }
+    try { r = await fetch(url, Object.assign({}, opts, { headers: Object.assign({ Authorization: 'Bearer ' + s.token }, opts.headers) })); }
     catch (e) { throw err('offline'); }
-    if (r.status === 401) { token = null; throw err('auth'); }
+    if (r.status === 401) { s.token = null; throw err('auth'); }
     if (!r.ok) {
       let m = ''; try { m = (await r.json()).error.message; } catch (e) { /* not JSON */ }
-      throw err(r.status === 403 && /quota|storage/i.test(m) ? 'drive-full' : 'http', `Google Drive error ${r.status}${m ? ': ' + m : ''}`);
+      throw err(r.status === 403 && /quota|storage/i.test(m) ? 'drive-full' : 'http', `Google error ${r.status}${m ? ': ' + m : ''}`);
     }
     return r;
   }
 
-  /** Who is signed in (works with the drive.file scope; no extra permission needed). */
-  async function whoAmI() {
-    const u = (await (await api(`${API}/about?fields=user(emailAddress,displayName)`)).json()).user || {};
-    return { email: u.emailAddress || '', name: u.displayName || '' };
+  /** Who signed in: {sub, email, name, picture}. sub is Google's permanent account ID. */
+  async function userInfo(s) {
+    const u = await (await api(s, 'https://www.googleapis.com/oauth2/v3/userinfo')).json();
+    if (!u.sub) throw err('auth', 'Google did not return the account details.');
+    return { sub: String(u.sub), email: u.email || '', name: u.name || u.given_name || '', given: u.given_name || '', picture: u.picture || '' };
   }
 
-  /** The newest Cash Flow backup in Drive, or null. Only files this app created are visible. */
-  async function find() {
+  /** The newest Cash Flow backup in this account's Drive, or null. Only files this app created are visible. */
+  async function find(s) {
     const q = encodeURIComponent(`appProperties has { key='${TAG}' and value='1' } and trashed=false`);
-    const r = await api(`${API}/files?q=${q}&orderBy=modifiedTime%20desc&pageSize=1&spaces=drive&fields=files(id,name,modifiedTime,size,appProperties)`);
+    const r = await api(s, `${API}/files?q=${q}&orderBy=modifiedTime%20desc&pageSize=1&spaces=drive&fields=files(id,name,modifiedTime,size,appProperties)`);
     const f = ((await r.json()).files || [])[0];
     return f ? { id: f.id, modified: f.modifiedTime, size: Number(f.size) || 0, txns: Number((f.appProperties || {}).txns) || 0 } : null;
   }
 
   /** Create or overwrite the backup file. Drive keeps earlier versions for about 30 days (Manage versions). */
-  async function save(text, info, existingId) {
+  async function save(s, text, info, existingId) {
     const meta = { name: FILE_NAME, appProperties: { [TAG]: '1', txns: String(info.txns), people: String(info.people) } };
-    if (!existingId) Object.assign(meta, { mimeType: 'application/json', description: 'Backup from the Cash Flow app. Restore it in Cash Flow → Settings → Google Drive backup.' });
+    if (!existingId) Object.assign(meta, { mimeType: 'application/json', description: 'Backup from the Cash Flow app. Restore it in Cash Flow → Settings → Google account & backup.' });
     const qs = 'fields=id,modifiedTime,size';
     const path = existingId ? `${UPLOAD}/files/${encodeURIComponent(existingId)}` : `${UPLOAD}/files`;
     const method = existingId ? 'PATCH' : 'POST';
-    const bytes = new TextEncoder().encode(text).length;
-    if (bytes <= MULTIPART_MAX) {
+    if (new TextEncoder().encode(text).length <= MULTIPART_MAX) {
       const b = 'cashflow' + Math.random().toString(36).slice(2);
       const body = `--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${b}\r\nContent-Type: application/json\r\n\r\n${text}\r\n--${b}--`;
-      return (await api(`${path}?uploadType=multipart&${qs}`, { method, headers: { 'Content-Type': `multipart/related; boundary=${b}` }, body })).json();
+      return (await api(s, `${path}?uploadType=multipart&${qs}`, { method, headers: { 'Content-Type': `multipart/related; boundary=${b}` }, body })).json();
     }
-    const start = await api(`${path}?uploadType=resumable&${qs}`, { method, headers: { 'Content-Type': 'application/json; charset=UTF-8', 'X-Upload-Content-Type': 'application/json' }, body: JSON.stringify(meta) });
+    const start = await api(s, `${path}?uploadType=resumable&${qs}`, { method, headers: { 'Content-Type': 'application/json; charset=UTF-8', 'X-Upload-Content-Type': 'application/json' }, body: JSON.stringify(meta) });
     const loc = start.headers.get('Location');
     if (!loc) throw err('http', 'Google Drive did not accept the upload.');
-    return (await api(loc, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: text })).json();
+    return (await api(s, loc, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: text })).json();
   }
 
-  async function download(id) { return (await api(`${API}/files/${encodeURIComponent(id)}?alt=media`)).text(); }
+  async function download(s, id) { return (await api(s, `${API}/files/${encodeURIComponent(id)}?alt=media`)).text(); }
 
-  /** Forget the token and remove Cash Flow's access to Drive. The backup file itself stays in Drive. */
-  function disconnect() {
-    const t = token; token = null; tokenExp = 0;
-    try { if (t && window.google && google.accounts && google.accounts.oauth2) google.accounts.oauth2.revoke(t, () => {}); } catch (e) { /* ignore */ }
+  /** Move the backup to the Drive Bin (recoverable there for 30 days). Never touches other files. */
+  async function trash(s, id) {
+    await api(s, `${API}/files/${encodeURIComponent(id)}?fields=id`, { method: 'PATCH', headers: { 'Content-Type': 'application/json; charset=UTF-8' }, body: JSON.stringify({ trashed: true }) });
   }
 
-  return { configured, preload, signIn, whoAmI, find, save, download, disconnect, FILE_NAME };
+  return { configured, preload, signIn, valid, userInfo, find, save, download, trash, FILE_NAME };
 })();

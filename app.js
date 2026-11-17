@@ -1,6 +1,7 @@
-/* Cash Flow — app logic. All data lives in this browser's localStorage. */
+/* Cash Flow — app logic. All data lives in this browser's localStorage, stored separately for each signed-in Google account. */
 (function () {
   const KEY = 'cashflow.v2', OLD_KEY = 'cashflow.v1', THEME_KEY = 'cashflow.theme';
+  const ACCOUNTS_KEY = 'cashflow.accounts', CURRENT_KEY = 'cashflow.user', OLD_DRIVE_KEY = 'cashflow.drive';
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const PAGE = 100;
   const $ = id => document.getElementById(id);
@@ -22,17 +23,35 @@
     d.txns = old.txns.map(t => Object.assign({}, t, { accountId: acct.id, id: acct.id + '|' + t.id }));
     return d;
   }
-  function load() {
+  const readJSON = k => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
+  const writeJSON = (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } };
+
+  /* Google accounts that have signed in on this device: {sub: {sub, email, name, given, last}}. sub is Google's
+     permanent account ID. Each account's data lives under its own key, so people sharing a device don't see each other's. */
+  const signInRequired = () => !!(window.CFDrive && CFDrive.configured());
+  const knownAccounts = () => readJSON(ACCOUNTS_KEY) || {};
+  let user = null;
+  if (signInRequired()) { const cur = readJSON(CURRENT_KEY); user = (cur && knownAccounts()[cur]) || null; }
+  const dataKey = (u = user) => u ? `${KEY}.${u.sub}` : KEY;
+  const gated = () => signInRequired() && !user;
+  /** Data saved on this device before sign-in existed (or when sign-in isn't set up). */
+  function legacyData() {
     try {
       const d = JSON.parse(localStorage.getItem(KEY));
       if (d && d.version === 2) return d;
       const old = JSON.parse(localStorage.getItem(OLD_KEY));
       if (old && Array.isArray(old.txns)) return migrateV1(old);
     } catch (e) { /* storage blocked or corrupt */ }
-    return fresh();
+    return null;
+  }
+  function load() {
+    if (!user) return legacyData() || fresh();
+    const d = readJSON(dataKey());
+    return d && d.version === 2 ? d : fresh();
   }
   function save() {
-    try { localStorage.setItem(KEY, JSON.stringify(db)); }
+    if (gated()) return; // nobody signed in yet: nothing to save
+    try { localStorage.setItem(dataKey(), JSON.stringify(db)); }
     catch (e) { toast('Could not save. Browser storage may be full or blocked. Back up from Settings.'); }
   }
 
@@ -187,7 +206,7 @@
   $('profileSel').onchange = e => { view.profile = e.target.value; view.acct = 'all'; view.cat = ''; initFilters(false); renderAll(); };
 
   function renderAll() {
-    renderHeader();
+    renderHeader(); renderAccount();
     if (view.page === 'settings') renderSettings(); else renderDash();
   }
 
@@ -927,13 +946,10 @@
     if (confirm('Replace everything in this browser with the backup?')) applyBackup(d);
   };
 
-  /* ---------- Google Drive backup (the user's own Drive; see gdrive.js) ---------- */
-  const DRIVE_KEY = 'cashflow.drive';
-  const driveState = () => { try { return JSON.parse(localStorage.getItem(DRIVE_KEY)) || {}; } catch (e) { return {}; } };
-  const setDriveState = s => { try { s ? localStorage.setItem(DRIVE_KEY, JSON.stringify(s)) : localStorage.removeItem(DRIVE_KEY); } catch (e) { /* ignore */ } };
+  /* ---------- Google account & Drive backup (the user's own Drive; see gdrive.js) ---------- */
   const fmtWhen = iso => new Date(iso).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
   const DRIVE_ERR = {
-    'not-configured': 'Google Drive backup has not been set up for this copy of the app yet.',
+    'not-configured': 'Google sign-in has not been set up for this copy of the app yet.',
     'not-loaded': 'Google sign-in is still loading. Try again in a moment.',
     offline: "You're offline. Connect to the internet and try again.",
     'popup-blocked': 'The browser blocked the Google sign-in window. Allow pop-ups for this site, then try again.',
@@ -943,52 +959,223 @@
     auth: 'Your Google sign-in expired. Please try again.',
     'drive-full': 'Your Google Drive is full. Free up some space, then try again.',
   };
-  let driveBusy = false, driveTok = null;
-  function renderDrive() {
-    const on = CFDrive.configured(), s = driveState();
-    $('driveBackupBtn').disabled = $('driveRestoreBtn').disabled = !on || driveBusy;
-    $('driveSignOutBtn').hidden = !s.email || driveBusy;
-    $('driveStatus').textContent = !on ? 'Not available yet: this copy of the app has no Google sign-in set up (see README.md).'
-      : s.email ? `Connected to ${s.email}. ` + (s.last ? `Last backup from this device: ${fmtWhen(s.last)}.` : 'No backup from this device yet.')
-      : "Not connected. The first time, Google will ask you to sign in and allow access.";
+  const errText = e => DRIVE_ERR[e && e.code] || (e && e.message) || 'Something went wrong with Google.';
+  const firstName = u => (u.given || (u.name || '').split(' ')[0] || (u.email || '').split('@')[0] || '').trim();
+  let sess = null;   // Google session for the signed-in account: memory only, about 1 hour
+  let busy = false;
+
+  function setUser(u) {
+    const all = knownAccounts();
+    if (u) all[u.sub] = u;
+    writeJSON(ACCOUNTS_KEY, all); writeJSON(CURRENT_KEY, u ? u.sub : null);
+    user = u;
   }
-  /** Sign in (may open Google's popup; so this must run straight from a click) and remember which account. */
-  async function driveConnect() {
-    const tok = await CFDrive.signIn(driveState().email);
-    if (tok !== driveTok) { driveTok = tok; const u = await CFDrive.whoAmI(); setDriveState(Object.assign(driveState(), { email: u.email })); }
+  /** A Drive session for the signed-in account. Opens Google's popup only when needed, so call it straight from a click. */
+  async function session() {
+    if (CFDrive.valid(sess) && sess.drive) return sess;
+    const s = await CFDrive.signIn({ hint: user.email, needDrive: true });
+    const u = await CFDrive.userInfo(s);
+    if (u.sub !== user.sub) throw new Error(`You chose ${u.email}, but this device is signed in as ${user.email}. Choose ${user.email}, or use "Change Google account" to move to ${u.email}.`);
+    return (sess = s);
   }
+
+  /* sign-in screen */
+  function renderGate(msg, isErr) {
+    const g = gated();
+    document.body.classList.toggle('gated', g);
+    $('gate').hidden = !g;
+    if (!g) return;
+    const loaded = !!(window.google && google.accounts && google.accounts.oauth2), offline = navigator.onLine === false;
+    $('gateSignIn').disabled = !loaded || busy;
+    $('gateMsg').textContent = msg || (loaded ? '' : offline ? "You're offline. Connect to the internet to sign in." : 'Loading Google sign-in…');
+    $('gateMsg').classList.toggle('err', !!isErr || (!loaded && offline));
+  }
+  $('gateSignIn').onclick = async () => {
+    if (busy) return;
+    busy = true; renderGate('Waiting for Google…');
+    try {
+      const s = await CFDrive.signIn({ selectAccount: true });
+      const u = await CFDrive.userInfo(s);
+      sess = s; busy = false; enterAccount(u);
+    } catch (e) { busy = false; renderGate(errText(e), true); }
+  };
+  function enterAccount(u) {
+    const known = knownAccounts()[u.sub] || {};
+    const rec = { sub: u.sub, email: u.email, name: u.name, given: u.given, last: known.last || null };
+    const oldDrive = readJSON(OLD_DRIVE_KEY); // last backup time from before sign-in existed
+    if (oldDrive && oldDrive.email === u.email && !rec.last) rec.last = oldDrive.last || null;
+    writeJSON(OLD_DRIVE_KEY, null);
+    let d = readJSON(dataKey(rec));
+    if (!(d && d.version === 2)) {
+      d = null;
+      const legacy = legacyData();
+      if (legacy && (legacy.txns.length || legacy.accounts.length) &&
+          confirm(`This device has Cash Flow data from before sign-in (${legacy.txns.length} transactions).\n\nMove it into ${u.email}?\n\nChoose Cancel if it belongs to someone else. It stays on this device for them.`)) {
+        d = legacy; writeJSON(KEY, null); writeJSON(OLD_KEY, null);
+      }
+      d = d || fresh();
+      if (d.profiles.length === 1 && d.profiles[0].name === 'Me' && firstName(rec)) d.profiles[0].name = firstName(rec);
+    }
+    setUser(rec);
+    db = d; recompile();
+    Object.assign(view, { page: 'dash', profile: db.profiles[0].id, acct: 'all', cat: '' });
+    initFilters(false); save(); renderGate(); renderAll();
+    toast(`Signed in as ${u.email}.`);
+  }
+
+  /* account card */
+  function renderAccount() {
+    const on = CFDrive.configured(), u = user;
+    $('whoBox').hidden = $('acctActions').hidden = !u;
+    if (u) { $('whoInitial').textContent = firstName(u).slice(0, 1); $('whoName').textContent = u.name || firstName(u); $('whoEmail').textContent = u.email; }
+    ['driveBackupBtn', 'driveRestoreBtn', 'driveDeleteBtn', 'changeAcctBtn', 'signOutBtn'].forEach(id => ($(id).disabled = !u || busy));
+    $('driveStatus').textContent = !on ? 'Google sign-in is not set up for this copy of the app (see README.md), so Drive backup is off.'
+      : !u ? '' : u.last ? `Last backup from this device: ${fmtWhen(u.last)}.` : 'No backup from this device yet.';
+    const av = $('avatarBtn');
+    av.hidden = !u;
+    if (u) { $('avatarInitial').textContent = firstName(u).slice(0, 1); av.title = `Signed in as ${u.email}`; av.setAttribute('aria-label', `Google account: ${u.email}`); }
+  }
+  $('avatarBtn').onclick = () => { goPage('settings'); $('driveCard').scrollIntoView({ block: 'start' }); };
   async function driveRun(btn, label, fn) {
-    if (driveBusy) return;
+    if (busy) return;
     const b = $(btn), text = b.textContent;
-    driveBusy = true; renderDrive(); b.textContent = label;
+    busy = true; renderAccount(); b.textContent = label;
     try { await fn(); }
-    catch (e) { toast(DRIVE_ERR[e && e.code] || (e && e.message) || 'Something went wrong with Google Drive.', 7000); }
-    finally { driveBusy = false; b.textContent = text; renderDrive(); }
+    catch (e) { toast(errText(e), 8000); }
+    finally { busy = false; b.textContent = text; renderAccount(); }
   }
   $('driveBackupBtn').onclick = () => driveRun('driveBackupBtn', 'Backing up…', async () => {
-    await driveConnect();
-    const existing = await CFDrive.find();
+    const s = await session();
+    const existing = await CFDrive.find(s);
     if (existing && existing.txns > db.txns.length && !confirm(`Your Google Drive backup (${fmtWhen(existing.modified)}) has ${existing.txns} transactions, but this device has only ${db.txns.length}.\n\nReplace the Drive backup with this device's data?\n\nTo copy the Drive data onto this device instead, choose Cancel, then "Restore from Drive".`)) return;
-    const f = await CFDrive.save(JSON.stringify(db), { txns: db.txns.length, people: db.profiles.length }, existing && existing.id);
-    setDriveState(Object.assign(driveState(), { last: (f && f.modifiedTime) || new Date().toISOString() }));
+    const f = await CFDrive.save(s, JSON.stringify(db), { txns: db.txns.length, people: db.profiles.length }, existing && existing.id);
+    setUser(Object.assign({}, user, { last: (f && f.modifiedTime) || new Date().toISOString() }));
     toast(`Backed up ${db.txns.length} transactions to your Google Drive.`);
   });
   $('driveRestoreBtn').onclick = () => driveRun('driveRestoreBtn', 'Restoring…', async () => {
-    await driveConnect();
-    const f = await CFDrive.find();
-    if (!f) return toast('No Cash Flow backup found in this Google account. Back up from your other device first.', 7000);
+    const s = await session();
+    const f = await CFDrive.find(s);
+    if (!f) return toast(`No Cash Flow backup found in ${user.email}'s Google Drive. Back up from your other device first.`, 7000);
     let d;
-    try { d = parseBackup(await CFDrive.download(f.id)); } catch (e) { if (e && e.code) throw e; return toast('The file in Google Drive is not a valid Cash Flow backup.', 7000); }
+    try { d = parseBackup(await CFDrive.download(s, f.id)); } catch (e) { if (e && e.code) throw e; return toast('The file in Google Drive is not a valid Cash Flow backup.', 7000); }
     if (confirm(`Replace everything in this browser with your Google Drive backup from ${fmtWhen(f.modified)} (${d.txns.length} transactions)?`)) applyBackup(d);
   });
-  $('driveSignOutBtn').onclick = () => {
-    if (!confirm('Disconnect Google Drive from Cash Flow on this device?\n\nYour backup file stays in your Google Drive, and you can reconnect any time.')) return;
-    CFDrive.disconnect(); driveTok = null; setDriveState(null); renderDrive(); toast('Disconnected from Google Drive.');
+  $('driveDeleteBtn').onclick = () => driveRun('driveDeleteBtn', 'Deleting…', async () => {
+    const s = await session();
+    const f = await CFDrive.find(s);
+    if (!f) return toast(`There is no Cash Flow backup in ${user.email}'s Google Drive.`);
+    if (!confirm(`Delete your Cash Flow backup from Google Drive (${user.email})?\n\nBackup from ${fmtWhen(f.modified)}, ${f.txns} transactions.\n\nIt moves to the Drive Bin, where you can still restore it for 30 days. Your data on this device is not affected.`)) return;
+    await CFDrive.trash(s, f.id);
+    setUser(Object.assign({}, user, { last: null }));
+    toast('Backup deleted. It is in your Google Drive Bin for 30 days.');
+  });
+
+  /* sign out */
+  $('signOutBtn').onclick = () => { $('soEmail').textContent = user.email; $('soWipe').checked = false; openDlg('signOutDlg'); };
+  $('soGo').onclick = () => {
+    const wipe = $('soWipe').checked;
+    if (wipe && !confirm(`Remove all of ${user.email}'s Cash Flow data from this device?\n\nIt can only be brought back from a Google Drive backup.`)) return;
+    if (wipe) { writeJSON(dataKey(), null); const all = knownAccounts(); delete all[user.sub]; writeJSON(ACCOUNTS_KEY, all); }
+    const email = user.email;
+    sess = null; user = null; writeJSON(CURRENT_KEY, null);
+    db = fresh(); recompile();
+    $('signOutDlg').close(); renderGate(); renderAccount();
+    toast(wipe ? `Signed out. ${email}'s data was removed from this device.` : `Signed out of ${email}.`);
   };
+
+  /* change Google account: moves this device's data and the Drive backup to another account */
+  let mv = null;
+  function moveStep(step, errMsg) {
+    mv.step = step;
+    const e = errMsg ? `<p class="move-err" role="alert">${esc(errMsg)}</p>` : '';
+    const steps = n => `<ol class="move-steps">${[`Confirm your current account (${esc(mv.old.email)})`, 'Choose the new Google account', 'Your data and backup are copied to it and checked', 'Choose whether to delete the backup from the old account']
+      .map((t, i) => `<li class="${i < n ? 'done' : i === n ? 'on' : ''}">${t}</li>`).join('')}</ol>`;
+    const B = { cancel: $('moveCancel'), next: $('moveNext') };
+    B.cancel.hidden = false; B.next.classList.remove('danger');
+    if (step === 'intro') {
+      $('moveBody').innerHTML = `<p>Move your Cash Flow data and Google Drive backup from <b>${esc(mv.old.email)}</b> to another Google account.</p>${steps(0)}${e}`;
+      B.cancel.textContent = 'Cancel'; B.next.textContent = 'Continue';
+    } else if (step === 'pick') {
+      const what = mv.fromDrive ? `the Google Drive backup (${mv.source.txns.length} transactions, which is more than this device has)` : `this device's data (${mv.source.txns.length} transactions)`;
+      $('moveBody').innerHTML = `${steps(1)}<p>Now choose the Google account to move to. If it isn't listed, choose <b>Use another account</b>.</p><p>Cash Flow will move ${what}.</p>${e}`;
+      B.cancel.textContent = 'Cancel'; B.next.textContent = 'Choose new account';
+    } else if (step === 'askDelete') {
+      $('moveBody').innerHTML = `${steps(3)}<p>Done: your data and backup are now in <b>${esc(user.email)}</b>.</p><p>The old backup is still in <b>${esc(mv.old.email)}</b>'s Google Drive (${fmtWhen(mv.oldFile.modified)}, ${mv.oldFile.txns} transactions). Delete it? It moves to that Drive's Bin for 30 days.</p>${e}`;
+      B.cancel.textContent = 'Keep it'; B.next.textContent = 'Delete old backup'; B.next.classList.add('danger');
+    } else if (step === 'done') {
+      $('moveBody').innerHTML = `<p>All done. You're now signed in as <b>${esc(user.email)}</b>, and your backup is in that account's Google Drive.</p>${mv.deleted ? `<p>The old backup was moved to ${esc(mv.old.email)}'s Drive Bin.</p>` : mv.oldFile ? `<p>The old backup was kept in ${esc(mv.old.email)}'s Drive.</p>` : ''}`;
+      B.cancel.hidden = true; B.next.textContent = 'Done';
+    }
+  }
+  function moveBusy(on, label) { busy = on; $('moveNext').disabled = $('moveCancel').disabled = on; if (on) $('moveNext').textContent = label; renderAccount(); }
+  $('changeAcctBtn').onclick = () => { mv = { old: Object.assign({}, user) }; moveStep('intro'); openDlg('moveDlg'); };
+  $('moveCancel').onclick = () => { if (mv && mv.step === 'askDelete') moveStep('done'); else $('moveDlg').close(); };
+  $('moveDlg').addEventListener('cancel', e => { if (busy) e.preventDefault(); else if (mv && mv.step === 'askDelete') { e.preventDefault(); moveStep('done'); } });
+  $('moveNext').onclick = async () => {
+    if (busy || !mv) return;
+    const step = mv.step;
+    if (step === 'done') return $('moveDlg').close();
+    if (step === 'intro') {
+      moveBusy(true, 'Checking…');
+      try {
+        mv.oldSess = await session();
+        mv.oldFile = await CFDrive.find(mv.oldSess);
+        mv.fromDrive = false; mv.source = db;
+        if (mv.oldFile && mv.oldFile.txns > db.txns.length) { mv.source = parseBackup(await CFDrive.download(mv.oldSess, mv.oldFile.id)); mv.fromDrive = true; }
+        moveBusy(false); moveStep('pick');
+      } catch (e) { moveBusy(false); moveStep('intro', e && (e.code || e.message) ? errText(e) : 'The old Drive backup could not be read.'); }
+      return;
+    }
+    if (step === 'pick') {
+      moveBusy(true, 'Waiting for Google…');
+      try {
+        const s = await CFDrive.signIn({ selectAccount: true, needDrive: true });
+        const u = await CFDrive.userInfo(s);
+        if (u.sub === mv.old.sub) { moveBusy(false); return moveStep('pick', `That's ${u.email}, the account you're already using. Choose a different one.`); }
+        const target = await CFDrive.find(s);
+        const onDevice = readJSON(dataKey(u));
+        const warn = [target && `${u.email} already has a Cash Flow backup in its Drive (${fmtWhen(target.modified)}, ${target.txns} transactions).`,
+          onDevice && onDevice.version === 2 && `${u.email} already has Cash Flow data on this device (${(onDevice.txns || []).length} transactions).`].filter(Boolean);
+        if (warn.length && !confirm(`${warn.join('\n')}\n\nReplace it with the data you're moving?`)) { moveBusy(false); return moveStep('pick', 'Nothing was changed. Choose another account, or Cancel.'); }
+        $('moveNext').textContent = 'Copying…';
+        const text = JSON.stringify(mv.source);
+        const f = await CFDrive.save(s, text, { txns: mv.source.txns.length, people: mv.source.profiles.length }, target && target.id);
+        if (await CFDrive.download(s, f.id) !== text) throw new Error('The copy in the new Google Drive did not match. Nothing was changed on this device; please try again.');
+        // switch this device over to the new account
+        const known = knownAccounts()[u.sub] || {};
+        const rec = { sub: u.sub, email: u.email, name: u.name, given: u.given, last: f.modifiedTime || new Date().toISOString() };
+        if (!rec.name && known.name) rec.name = known.name;
+        writeJSON(dataKey(rec), mv.source);
+        writeJSON(dataKey(mv.old), null);
+        const all = knownAccounts(); delete all[mv.old.sub]; writeJSON(ACCOUNTS_KEY, all);
+        setUser(rec); sess = s;
+        db = mv.source; recompile();
+        Object.assign(view, { profile: db.profiles[0].id, acct: 'all', cat: '' });
+        initFilters(false); renderAll();
+        moveBusy(false); moveStep(mv.oldFile ? 'askDelete' : 'done');
+        toast(`Moved to ${u.email}.`);
+      } catch (e) { moveBusy(false); moveStep('pick', errText(e)); }
+      return;
+    }
+    if (step === 'askDelete') {
+      moveBusy(true, 'Deleting…');
+      try {
+        if (!CFDrive.valid(mv.oldSess)) {
+          const s = await CFDrive.signIn({ hint: mv.old.email, needDrive: true });
+          if ((await CFDrive.userInfo(s)).sub !== mv.old.sub) throw new Error(`Please choose ${mv.old.email} to delete its old backup.`);
+          mv.oldSess = s;
+        }
+        await CFDrive.trash(mv.oldSess, mv.oldFile.id);
+        mv.deleted = true; moveBusy(false); moveStep('done');
+      } catch (e) { moveBusy(false); moveStep('askDelete', errText(e)); }
+    }
+  };
+
   // load Google's sign-in library ahead of time so the sign-in popup opens straight from the click
-  const preloadDrive = () => { if (CFDrive.configured() && navigator.onLine !== false) CFDrive.preload().catch(() => {}); };
-  window.addEventListener('online', preloadDrive);
-  preloadDrive(); renderDrive();
+  const preloadGoogle = () => { if (CFDrive.configured() && navigator.onLine !== false) CFDrive.preload().then(() => renderGate(), () => renderGate()); renderGate(); };
+  window.addEventListener('online', preloadGoogle);
+  window.addEventListener('offline', () => renderGate());
+  preloadGoogle(); renderAccount();
   $('clearBtn').onclick = () => {
     if (!confirm('Delete ALL people, accounts, transactions and category settings from this browser?')) return;
     db = fresh(); recompile(); save(); view.profile = db.profiles[0].id; view.acct = 'all'; view.cat = ''; initFilters(false); renderAll();
@@ -1091,5 +1278,5 @@
   if (location.hash === '#demo' && !db.txns.length) loadSample();
   applyTheme(getTheme());
   renderAll();
-  save(); // persists a migrated v1 store in the new format
+  save(); // persists a migrated v1 store in the new format (skipped while nobody is signed in)
 })();

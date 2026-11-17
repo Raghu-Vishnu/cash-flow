@@ -14,24 +14,27 @@ device. Nothing is uploaded, unless you choose to back up to your own Google Dri
 > data stores. Use **Settings → Your data → Back up / Restore** to move your data between them or to another device.
 
 ## Using it
+0. **Sign in with Google** the first time you open Cash Flow on a device. Each Google account has its own separate data on the device.
 1. **Settings → People & accounts:** add people (you, family) and their bank accounts.
 2. **Upload** (the button at the top of the left rail on desktop, the round button at the bottom-right on phones): pick the account and drop CSV/Excel/PDF statements.
    Every file is checked against the account number, and its running balance is verified so missing transactions are flagged.
 3. **Dashboard:** year & month, last 30 days / 3 / 6 months, financial year, or custom dates. Tap a bar or a category to drill in.
 4. **Transactions:** tap any transaction to change its category (remembered for that merchant) or delete it (with undo).
-5. **Settings → Google Drive backup:** save a backup to your own Google Drive and restore it on any other device.
+5. **Settings → Google account & backup:** back up to your own Google Drive, restore it on any other device, delete the backup,
+   change to another Google account (your data and backup move with you), or sign out.
 6. **Settings → Statement diagnostics:** creates an anonymised report if a statement isn't read correctly.
 
-## Google Drive backup (one-time setup)
-The backup goes straight from the browser to the user's own Google Drive. There is no Cash Flow server.
-The app asks only for the `drive.file` permission, so it can see the files it created and nothing else in the Drive.
+## Google sign-in & Drive backup (one-time setup)
+Sign-in and backup run in the browser. There is no Cash Flow server or account database. Scopes: `openid email profile`
+(who is signed in) and `drive.file` (only the files the app created, nothing else in the Drive).
+Without a client ID, sign-in is skipped and the app works as a single local store.
 The sign-in token is kept in memory for about an hour and is never saved.
 
 Google needs to know which website is allowed to ask for sign-in. Do this once:
 1. Go to **console.cloud.google.com** and create a project (for example "Cash Flow").
 2. **APIs & Services → Library**: search for **Google Drive API** and click **Enable**.
 3. **Google Auth Platform → Branding** (older consoles call it "OAuth consent screen"): fill in the app name "Cash Flow" and your support email. Audience: **External**.
-4. **Data access → Add or remove scopes**: add `.../auth/drive.file`, then save.
+4. **Data access → Add or remove scopes**: add `openid`, `.../auth/userinfo.email`, `.../auth/userinfo.profile` and `.../auth/drive.file`, then save.
 5. **Audience**: click **Publish app**. `drive.file` is a non-sensitive scope, so Google doesn't need to review it.
    If you leave it in "Testing", only the Google accounts you add as test users can sign in.
 6. **Clients → Create client** → type **Web application**. Under **Authorized JavaScript origins**, add
