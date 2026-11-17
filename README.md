@@ -1,7 +1,7 @@
 # Cash Flow: personal income & expense tracker
 
 An installable app (PWA) for Android, iPhone/iPad, macOS and Windows. Your statements are processed on your
-device and never uploaded anywhere. The design follows Google's Material Design 3, with Apple's iOS guidelines for phones.
+device. Nothing is uploaded, unless you choose to back up to your own Google Drive. The design follows Google's Material Design 3, with Apple's iOS guidelines for phones.
 
 ## Open it
 | How | Works offline | Can install as an app |
@@ -19,10 +19,33 @@ device and never uploaded anywhere. The design follows Google's Material Design 
    Every file is checked against the account number, and its running balance is verified so missing transactions are flagged.
 3. **Dashboard:** year & month, last 30 days / 3 / 6 months, financial year, or custom dates. Tap a bar or a category to drill in.
 4. **Transactions:** tap any transaction to change its category (remembered for that merchant) or delete it (with undo).
-5. **Settings → Statement diagnostics:** creates an anonymised report if a statement isn't read correctly.
+5. **Settings → Google Drive backup:** save a backup to your own Google Drive and restore it on any other device.
+6. **Settings → Statement diagnostics:** creates an anonymised report if a statement isn't read correctly.
+
+## Google Drive backup (one-time setup)
+The backup goes straight from the browser to the user's own Google Drive. There is no Cash Flow server.
+The app asks only for the `drive.file` permission, so it can see the files it created and nothing else in the Drive.
+The sign-in token is kept in memory for about an hour and is never saved.
+
+Google needs to know which website is allowed to ask for sign-in. Do this once:
+1. Go to **console.cloud.google.com** and create a project (for example "Cash Flow").
+2. **APIs & Services → Library**: search for **Google Drive API** and click **Enable**.
+3. **Google Auth Platform → Branding** (older consoles call it "OAuth consent screen"): fill in the app name "Cash Flow" and your support email. Audience: **External**.
+4. **Data access → Add or remove scopes**: add `.../auth/drive.file`, then save.
+5. **Audience**: click **Publish app**. `drive.file` is a non-sensitive scope, so Google doesn't need to review it.
+   If you leave it in "Testing", only the Google accounts you add as test users can sign in.
+6. **Clients → Create client** → type **Web application**. Under **Authorized JavaScript origins**, add
+   `https://raghu-vishnu.github.io` and `http://localhost:8765`. Leave redirect URIs empty, then click Create.
+7. Copy the **Client ID** (it ends in `.apps.googleusercontent.com`) into `CLIENT_ID` at the top of `gdrive.js`.
+   A client ID is public by design, so it's safe to commit. There is no client secret to keep.
+8. Bump `VERSION` in `sw.js` and publish.
+
+Restoring works on any device with the same Google account. Drive keeps earlier versions of the backup file for
+about 30 days: right-click the file in Drive, then choose **Manage versions**.
 
 ## For developers
 - `parser.js`: statement reading (CSV/Excel/PDF with layout detection), verification, categorisation, anonymiser
+- `gdrive.js`: optional Google Drive backup (Google Identity Services + Drive REST API, no server)
 - `app.js`: UI logic · `styles.css`: Material 3 theme · `sw.js`: offline cache · `manifest.webmanifest`: app install info
 - `vendor/`: Chart.js 4.4.1, SheetJS 0.18.5, pdf.js 3.11.174 (bundled so the app works offline)
 - **When you change any file, bump `VERSION` in `sw.js`** so installed apps pick up the update.

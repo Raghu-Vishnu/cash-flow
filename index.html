@@ -21,7 +21,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0..1,0&icon_names=account_balance,add,arrow_downward,arrow_drop_down,arrow_upward,atm,backup,calendar_month,category,check_circle,close,credit_card,dark_mode,date_range,delete,directions_car,download,edit,error,event,group,health_and_safety,home,info,install_mobile,label,light_mode,local_grocery_store,medical_services,movie,palette,payments,percent,person,qr_code_2,receipt,receipt_long,replay,request_quote,restaurant,savings,school,search,settings,shopping_bag,space_dashboard,sync_alt,trending_up,troubleshoot,upload_file,warning&display=block">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0..1,0&icon_names=account_balance,add,arrow_downward,arrow_drop_down,arrow_upward,atm,backup,calendar_month,category,check_circle,close,cloud,credit_card,dark_mode,date_range,delete,directions_car,download,edit,error,event,group,health_and_safety,home,info,install_mobile,label,light_mode,local_grocery_store,medical_services,movie,palette,payments,percent,person,qr_code_2,receipt,receipt_long,replay,request_quote,restaurant,savings,school,search,settings,shopping_bag,space_dashboard,sync_alt,trending_up,troubleshoot,upload_file,warning&display=block">
 <link rel="stylesheet" href="styles.css">
 <script src="vendor/chart.umd.min.js"></script>
 <script src="vendor/xlsx.full.min.js"></script>
@@ -211,6 +211,17 @@
         <button class="btn tonal" id="diagBtn">Create anonymised report…</button>
       </div>
 
+      <div class="card" id="driveCard">
+        <div class="card-head"><h2><span class="ms">cloud</span>Google Drive backup</h2></div>
+        <p class="hint">Save a backup to <b>your own</b> Google Drive, then restore it on any phone or computer. The file goes straight from this browser to your Drive: Cash Flow has no server and never sees your data. The app can only see the backup file it creates, not the rest of your Drive.</p>
+        <p class="hint" id="driveStatus" aria-live="polite"></p>
+        <div class="row-gap left">
+          <button class="btn tonal" id="driveBackupBtn">Back up to Drive</button>
+          <button class="btn" id="driveRestoreBtn">Restore from Drive</button>
+          <button class="btn text" id="driveSignOutBtn" hidden>Disconnect</button>
+        </div>
+      </div>
+
       <div class="card">
         <div class="card-head"><h2><span class="ms">backup</span>Your data</h2></div>
         <p class="hint">Everything is stored only in this browser on this device. Back up regularly, because clearing browser data deletes it. Use backup &amp; restore to move your data to another device.</p>
@@ -221,7 +232,7 @@
           <button class="btn danger" id="clearBtn">Delete all data</button>
         </div>
       </div>
-      <p class="footnote">Cash Flow · your data never leaves this device</p>
+      <p class="footnote">Cash Flow · your data stays on this device, and in your own Google Drive only if you back up there · <a href="privacy.html">Privacy policy</a></p>
     </section>
   </main>
 </div>
@@ -343,6 +354,7 @@
 <div id="overlay" class="overlay" hidden><div class="drop-msg"><span class="ms">upload_file</span>Drop statements to import</div></div>
 
 <script src="parser.js"></script>
+<script src="gdrive.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

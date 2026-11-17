@@ -298,6 +298,7 @@ button.bar-row:hover, button.bar-row.active { background: var(--sc-high); }
 .seg label.on .ms { display: inline-block; }
 .seg label:focus-within { outline: 3px solid var(--primary); outline-offset: -3px; }
 .footnote { text-align: center; color: var(--on-surface-variant); font-size: 12px; padding: 8px 0 0; }
+.footnote a { color: var(--primary); }
 
 /* ---------- dialogs (centered on large screens, bottom sheets on phones) ---------- */
 .dlg {
