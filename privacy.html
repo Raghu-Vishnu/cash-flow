@@ -32,28 +32,29 @@
 <main>
   <a class="back" href="./">← Back to Cash Flow</a>
   <h1>Privacy policy</h1>
-  <p class="meta">Cash Flow, a personal income and expense tracker · Last updated 17 November 2026 (Google sign-in added)</p>
+  <p class="meta">Cash Flow, a personal income and expense tracker · Last updated 17 November 2026</p>
 
-  <div class="summary"><p><b>In short:</b> Cash Flow has no server. Your bank statements and transactions stay on your own device. If you choose to back up to Google Drive, the backup goes straight from your browser to <b>your own</b> Google Drive. The people who make Cash Flow never receive, see or store your data.</p></div>
+  <div class="summary"><p><b>In short:</b> Cash Flow has no server. Your transactions are saved in <b>your own</b> Google Drive, and on the devices where you choose "Remember this device". Data goes straight between your browser and Google. The people who make Cash Flow never receive, see or store your data.</p></div>
 
   <h2>1. Data the app handles</h2>
   <ul>
     <li><b>Bank statements you upload</b> (CSV, Excel or PDF) are read inside your browser. The files are never uploaded anywhere.</li>
-    <li><b>Your transactions, people, accounts, categories and settings</b> are saved in your browser's storage on that device only.</li>
+    <li><b>Your transactions, people, accounts, categories and settings</b> are saved in your own Google Drive (see below). On a device where you choose <i>Remember this device</i>, a copy is also kept in the browser's storage so the app opens quickly and works offline. On other devices, the browser removes it when you close the tab.</li>
+    <li><b>Downloads</b> (CSV, Excel, PDF) are created on your device and saved where you choose. They are not uploaded anywhere.</li>
     <li>The app has <b>no accounts, no analytics, no advertising and no tracking cookies</b>.</li>
   </ul>
 
-  <h2>2. Google sign-in and Google Drive backup</h2>
-  <p>You sign in with your Google account when you first open Cash Flow on a device. Sign-in keeps each person's data separate on a shared device and lets you back up to your own Google Drive. Sign-in happens in your browser with Google. There is no Cash Flow account database, and no server receives your details.</p>
+  <h2>2. Google sign-in and Google Drive</h2>
+  <p>You sign in with your Google account when you first open Cash Flow on a device. Sign-in keeps each person's data separate and saves it in your own Google Drive, so it stays in step across your devices. Sign-in happens in your browser with Google. There is no Cash Flow account database, and no server receives your details.</p>
   <ul>
-    <li><b>Permissions requested:</b> <code>openid</code>, <code>email</code> and <code>profile</code> (your Google account ID, email address and name), and <code>https://www.googleapis.com/auth/drive.file</code>. <code>drive.file</code> lets the app see, create, update and delete only the files it created itself. In Cash Flow, that is one file named <b>"Cash Flow backup.json"</b>. The app cannot see any other file in your Drive.</li>
+    <li><b>Permissions requested:</b> <code>openid</code>, <code>email</code> and <code>profile</code> (your Google account ID, email address and name), and <code>https://www.googleapis.com/auth/drive.file</code>. <code>drive.file</code> lets the app see, create, update and delete only the files it created itself. In Cash Flow, that is one file named <b>"Cash Flow backup.json"</b>, which holds your Cash Flow data. The app cannot see any other file in your Drive.</li>
     <li><b>Your name, email address and Google account ID</b> are stored only in your browser on that device. They are used to show who is signed in and to keep each account's data separate. They are never sent to us.</li>
-    <li><b>What is saved:</b> a copy of your Cash Flow data (the same content as <i>Back up (JSON)</i> in Settings), stored in your own Google Drive.</li>
+    <li><b>What is saved:</b> your Cash Flow data, updated automatically after each change while you are signed in.</li>
     <li><b>How it travels:</b> directly between your browser and Google over an encrypted (HTTPS) connection. It does not pass through any server run by Cash Flow.</li>
     <li><b>Sign-in token:</b> Google's access token is kept in memory for about one hour and is never saved or shared.</li>
-    <li><b>Deleting:</b> the app deletes its backup file only when you choose <i>Delete backup</i>, or when you choose to delete the old copy after changing Google account. Deleted backups go to your Drive Bin, where you can restore them for 30 days. The app never touches any other file.</li>
+    <li><b>Deleting:</b> the app deletes its file only when you choose <i>Delete Drive copy</i>, or when you choose to delete the old copy after changing Google account. Deleted backups go to your Drive Bin, where you can restore them for 30 days. The app never touches any other file.</li>
   </ul>
-  <p>Cash Flow's use and transfer of information received from Google APIs follows the <a href="https://developers.google.com/terms/api-services-user-data-policy" rel="noopener">Google API Services User Data Policy</a>, including the Limited Use requirements. Data from Google is used only to sign you in on your own device and to save, restore and delete your own backup. It is never sold, never used for advertising, never shared with anyone, and never read by people.</p>
+  <p>Cash Flow's use and transfer of information received from Google APIs follows the <a href="https://developers.google.com/terms/api-services-user-data-policy" rel="noopener">Google API Services User Data Policy</a>, including the Limited Use requirements. Data from Google is used only to sign you in and to save, load and delete your own Cash Flow file. It is never sold, never used for advertising, never shared with anyone, and never read by people.</p>
 
   <h2>3. Third-party services</h2>
   <ul>
@@ -66,9 +67,10 @@
   <ul>
     <li><b>Delete data on a device:</b> Settings → <i>Delete all data</i>, or clear the browser's site data.</li>
     <li><b>Sign out:</b> Settings → Google account &amp; backup → <i>Sign out</i>. You can also remove the data from that device as you sign out.</li>
-    <li><b>Change Google account:</b> Settings → <i>Change Google account</i> moves your data and backup to another of your Google accounts.</li>
+    <li><b>Change Google account:</b> Settings → <i>Change Google account</i> moves your data to another of your Google accounts.</li>
     <li><b>Remove Cash Flow's access to your Google account:</b> at any time at <a href="https://myaccount.google.com/permissions" rel="noopener">myaccount.google.com/permissions</a>.</li>
-    <li><b>Delete the backup:</b> Settings → <i>Delete backup</i>, or delete "Cash Flow backup.json" from your Google Drive yourself.</li>
+    <li><b>Delete the Drive copy:</b> Settings → <i>Delete Drive copy</i>, or delete "Cash Flow backup.json" from your Google Drive yourself.</li>
+    <li><b>Stop keeping data on a device:</b> Settings → turn off <i>Remember this device</i>.</li>
   </ul>
 
   <h2>5. Children</h2>

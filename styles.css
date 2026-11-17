@@ -493,3 +493,32 @@ body.gated .shell, body.gated .rail, body.gated .navbar, body.gated .fab, body.g
 #moveBody p + p, #moveBody p + ol, #moveBody ol + p { margin-top: 12px; }
 .move-err { color: var(--error); }
 .btn.primary.danger { background: var(--error); color: #fff; }
+
+/* ---------- sync & downloads ---------- */
+.gate-remember { margin-top: 4px; }
+.gate-note { color: var(--on-surface-variant); font-size: 12px; line-height: 16px; max-width: 320px; margin-top: -4px; }
+.sync-btn { position: relative; }
+.sync-btn.spin .ms { animation: sync-spin 1.2s linear infinite; }
+@keyframes sync-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .sync-btn.spin .ms { animation: none; } }
+.sync-dot { position: absolute; top: 9px; right: 9px; width: 8px; height: 8px; border-radius: 50%; background: var(--error); }
+.sync-line { display: flex; align-items: flex-start; gap: 10px; margin: 0 0 12px; font-size: 14px; line-height: 20px; }
+.sync-line[hidden] { display: none; }
+.sync-line .ms { color: var(--primary); font-size: 20px; }
+.switch-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 0; margin-bottom: 8px; border-top: 1px solid var(--outline-variant); cursor: pointer; }
+.switch-row[hidden] { display: none; }
+.switch-text { display: grid; gap: 2px; min-width: 0; }
+.switch-text b { font-weight: 500; }
+.switch-text span { color: var(--on-surface-variant); font-size: 13px; line-height: 18px; }
+.switch-row input { appearance: none; -webkit-appearance: none; flex: none; width: 52px; height: 32px; border-radius: 16px; border: 2px solid var(--outline); background: var(--sc-highest); position: relative; cursor: pointer; transition: background .2s var(--ease); }
+.switch-row input::after { content: ''; position: absolute; top: 6px; left: 6px; width: 16px; height: 16px; border-radius: 50%; background: var(--outline); transition: all .2s var(--ease); }
+.switch-row input:checked { background: var(--primary); border-color: var(--primary); }
+.switch-row input:checked::after { left: 24px; top: 2px; width: 24px; height: 24px; background: var(--on-primary); }
+.switch-row input:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
+.switch-row input:disabled { opacity: .38; }
+.ex-count { font-weight: 500; margin: 8px 0 12px; }
+.ex-formats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.ex-formats .btn { justify-content: center; padding: 0 8px; }
+.field input[type="date"] { appearance: none; -webkit-appearance: none; }
+/* phones: light/dark lives in Settings → Appearance, so the header keeps room for the title, sync and account */
+@media (max-width: 599px) { #themeBtn { display: none; } }

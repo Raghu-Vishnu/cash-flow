@@ -21,7 +21,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0..1,0&icon_names=account_balance,account_circle,add,arrow_downward,arrow_drop_down,arrow_upward,atm,backup,calendar_month,category,check_circle,close,cloud,credit_card,dark_mode,date_range,delete,directions_car,download,edit,error,event,group,health_and_safety,home,info,install_mobile,label,light_mode,local_grocery_store,lock,logout,medical_services,movie,palette,payments,percent,person,qr_code_2,receipt,receipt_long,replay,request_quote,restaurant,savings,school,search,settings,shopping_bag,space_dashboard,swap_horiz,sync_alt,trending_up,troubleshoot,upload_file,warning&display=block">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0..1,0&icon_names=account_balance,account_circle,add,arrow_downward,arrow_drop_down,arrow_upward,atm,backup,calendar_month,category,check_circle,close,cloud,cloud_done,cloud_off,cloud_sync,cloud_upload,credit_card,dark_mode,date_range,delete,description,directions_car,download,edit,error,event,group,health_and_safety,home,info,install_mobile,label,light_mode,local_grocery_store,lock,logout,medical_services,movie,palette,payments,percent,person,picture_as_pdf,qr_code_2,receipt,receipt_long,replay,request_quote,restaurant,savings,school,search,settings,shopping_bag,space_dashboard,swap_horiz,sync_alt,sync_problem,table_view,trending_up,troubleshoot,upload_file,warning&display=block">
 <link rel="stylesheet" href="styles.css">
 <script src="vendor/chart.umd.min.js"></script>
 <script src="vendor/xlsx.full.min.js"></script>
@@ -34,12 +34,14 @@
     <img src="icons/icon.svg" width="64" height="64" alt="">
     <h1>Cash Flow</h1>
     <p class="gate-tag">Track your income and expenses from your own bank statements.</p>
+    <label class="check gate-remember"><input type="checkbox" id="gateRemember"> Remember this device</label>
+    <p class="gate-note">Keeps a copy here so the app opens quickly and works offline. Leave it off on shared or public computers.</p>
     <button class="gsi-btn" id="gateSignIn" disabled><svg class="g-logo" viewBox="0 0 48 48" width="20" height="20" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg><span>Sign in with Google</span></button>
     <p class="gate-msg" id="gateMsg" aria-live="polite">Loading Google sign-in…</p>
     <ul class="gate-points">
-      <li><span class="ms" aria-hidden="true">lock</span><span>Your statements stay on this device. Cash Flow has no server and never sees your data.</span></li>
+      <li><span class="ms" aria-hidden="true">lock</span><span>Your data is saved in your own Google Drive. Cash Flow has no server and never sees it.</span></li>
       <li><span class="ms" aria-hidden="true">group</span><span>Everyone signs in with their own Google account and sees only their own data.</span></li>
-      <li><span class="ms" aria-hidden="true">cloud</span><span>Back up to your own Google Drive and restore on any phone or computer.</span></li>
+      <li><span class="ms" aria-hidden="true">cloud_sync</span><span>Use it on your phone and computer: changes stay in step through your Drive.</span></li>
     </ul>
     <a class="gate-link" href="privacy.html">Privacy policy</a>
   </div>
@@ -70,6 +72,7 @@
         <span class="ms chev">arrow_drop_down</span>
       </label>
       <button class="icon-btn" id="themeBtn" aria-label="Switch light / dark theme" title="Switch light / dark theme"><span class="ms">dark_mode</span></button>
+      <button class="icon-btn sync-btn" id="syncBtn" hidden><span class="ms" id="syncIc">cloud_done</span><span class="sync-dot" id="syncDot" hidden></span></button>
       <button class="icon-btn avatar-btn" id="avatarBtn" hidden><span id="avatarInitial"></span></button>
     </div>
   </header>
@@ -229,14 +232,19 @@
       </div>
 
       <div class="card" id="driveCard">
-        <div class="card-head"><h2><span class="ms">account_circle</span>Google account &amp; backup</h2></div>
+        <div class="card-head"><h2><span class="ms">account_circle</span>Google account &amp; Drive</h2></div>
         <div class="who" id="whoBox" hidden><span class="who-initial" id="whoInitial" aria-hidden="true"></span><div class="who-text"><b id="whoName"></b><span id="whoEmail"></span></div></div>
-        <p class="hint">Back up to <b>your own</b> Google Drive, then restore on any phone or computer. The file goes straight from this browser to your Drive: Cash Flow has no server and never sees your data. The app can only see the backup file it creates, not the rest of your Drive.</p>
-        <p class="hint" id="driveStatus" aria-live="polite"></p>
+        <p class="hint">Your data is saved in <b>your own</b> Google Drive and kept in step across your devices. It goes straight between this browser and your Drive: Cash Flow has no server and never sees your data. The app can only see the one file it creates, not the rest of your Drive.</p>
+        <p class="hint" id="driveOff" hidden>Google sign-in is not set up for this copy of the app (see README.md), so your data is kept only in this browser.</p>
+        <div class="sync-line" id="syncLine" hidden><span class="ms" id="syncLineIc" aria-hidden="true">cloud_done</span><span id="driveStatus" aria-live="polite"></span></div>
+        <label class="switch-row" id="rememberRow" hidden>
+          <span class="switch-text"><b>Remember this device</b><span>Keep a copy here so the app opens quickly and works offline. Turn off on shared computers: data is then removed when the tab closes.</span></span>
+          <input type="checkbox" role="switch" id="rememberChk">
+        </label>
         <div class="row-gap left">
-          <button class="btn tonal" id="driveBackupBtn">Back up to Drive</button>
-          <button class="btn" id="driveRestoreBtn">Restore from Drive</button>
-          <button class="btn danger" id="driveDeleteBtn">Delete backup</button>
+          <button class="btn tonal" id="syncNowBtn"><span class="ms">cloud_sync</span>Sync now</button>
+          <button class="btn" id="driveOnBtn" hidden><span class="ms">cloud_sync</span>Turn Drive sync back on</button>
+          <button class="btn danger" id="driveDeleteBtn">Delete Drive copy</button>
         </div>
         <div class="row-gap left acct-actions" id="acctActions">
           <button class="btn text" id="changeAcctBtn"><span class="ms">swap_horiz</span>Change Google account</button>
@@ -245,16 +253,14 @@
       </div>
 
       <div class="card">
-        <div class="card-head"><h2><span class="ms">backup</span>Your data</h2></div>
-        <p class="hint">Everything is stored only in this browser on this device. Back up regularly, because clearing browser data deletes it. Use backup &amp; restore to move your data to another device.</p>
+        <div class="card-head"><h2><span class="ms">download</span>Your data</h2></div>
+        <p class="hint">Download transactions for any person, account and period as CSV, Excel or a PDF statement.</p>
         <div class="row-gap left">
-          <button class="btn" id="exportBtn">Back up (JSON)</button>
-          <button class="btn" id="importBtn">Restore</button>
-          <button class="btn" id="csvBtn">Export CSV</button>
+          <button class="btn tonal" id="downloadBtn"><span class="ms">download</span>Download transactions</button>
           <button class="btn danger" id="clearBtn">Delete all data</button>
         </div>
       </div>
-      <p class="footnote">Cash Flow · your data stays on this device, and in your own Google Drive only if you back up there · <a href="privacy.html">Privacy policy</a></p>
+      <p class="footnote">Cash Flow · your data stays in your own Google Drive and on the devices you choose · <a href="privacy.html">Privacy policy</a></p>
     </section>
   </main>
 </div>
@@ -369,13 +375,35 @@
 <!-- Sign out -->
 <dialog id="signOutDlg" class="dlg">
   <h2>Sign out?</h2>
-  <p>Your data stays on this device. It opens again the next time <b id="soEmail"></b> signs in here.</p>
-  <label class="check"><input type="checkbox" id="soWipe"> Also remove my data from this device</label>
-  <p class="hint" id="soHint">Use this on a shared or borrowed device. Back up to Drive first, so you can restore it later.</p>
+  <p id="soText"></p>
+  <p class="move-err" id="soWarn" hidden>Some of your data is not in Google Drive yet. Choose Cancel and tap Sync first, or it will be lost from this device.</p>
+  <label class="check" id="soWipeRow"><input type="checkbox" id="soWipe"> Also remove my data from this device</label>
+  <p class="hint" id="soHint">Use this on a shared or borrowed device. Your Google Drive copy stays.</p>
   <div class="dlg-actions">
     <button type="button" class="btn text" data-close>Cancel</button>
     <button type="button" class="btn primary" id="soGo">Sign out</button>
   </div>
+</dialog>
+
+<!-- Download transactions -->
+<dialog id="exportDlg" class="dlg">
+  <h2>Download transactions</h2>
+  <div class="two">
+    <label class="field">Person <select id="exProfile"></select></label>
+    <label class="field">Account <select id="exAcct"></select></label>
+  </div>
+  <div class="two">
+    <label class="field">From <input type="date" id="exFrom"></label>
+    <label class="field">To <input type="date" id="exTo"></label>
+  </div>
+  <p class="hint" id="exRange"></p>
+  <p class="ex-count" id="exCount"></p>
+  <div class="ex-formats">
+    <button type="button" class="btn" id="exCsv"><span class="ms">description</span>CSV</button>
+    <button type="button" class="btn" id="exXlsx"><span class="ms">table_view</span>Excel</button>
+    <button type="button" class="btn" id="exPdf"><span class="ms">picture_as_pdf</span>PDF</button>
+  </div>
+  <div class="dlg-actions"><button type="button" class="btn text" data-close>Close</button></div>
 </dialog>
 
 <!-- Anonymised diagnostics -->
@@ -393,13 +421,13 @@
 
 <input type="file" id="fileInput" accept=".csv,.txt,.xls,.xlsx,.pdf" multiple hidden>
 <input type="file" id="diagInput" accept=".csv,.txt,.xls,.xlsx,.pdf" hidden>
-<input type="file" id="backupInput" accept=".json" hidden>
 <div id="toast" class="toast" role="status" aria-live="polite" hidden><span id="toastMsg"></span><button id="toastAct" class="toast-act" hidden></button></div>
 <div id="overlay" class="overlay" hidden><div class="drop-msg"><span class="ms">upload_file</span>Drop statements to import</div></div>
 
 <script src="parser.js"></script>
 <script src="config.js"></script>
 <script src="gdrive.js"></script>
+<script src="sync.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

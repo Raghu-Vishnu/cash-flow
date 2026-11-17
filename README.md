@@ -10,24 +10,31 @@ device. Nothing is uploaded, unless you choose to back up to your own Google Dri
 | **Mac:** double-click `Start Cash Flow.command` · **Windows:** double-click `Start Cash Flow (Windows).bat` (needs Python) | ✓ | ✓ (Chrome / Edge → install icon in the address bar) |
 | Host the folder on any HTTPS site (e.g. GitHub Pages, Netlify) and open the link on your phone | ✓ | ✓ (Android: "Install app"; iPhone: Share → Add to Home Screen) |
 
-> Data is stored per browser *and* per address. Opening via a file, localhost or a hosted link gives three separate
-> data stores. Use **Settings → Your data → Back up / Restore** to move your data between them or to another device.
+> The copy kept on a device is per browser *and* per address (file, localhost and a hosted link are separate). Sign in
+> with the same Google account and **Sync** to bring the same data to any of them.
 
 ## Using it
-0. **Sign in with Google** the first time you open Cash Flow on a device. Each Google account has its own separate data on the device.
+0. **Sign in with Google** the first time you open Cash Flow on a device. Your data is saved in your own Google Drive and kept in step
+   across devices. Tick **Remember this device** on your own phone or laptop to keep a copy there (opens instantly, works offline).
 1. **Settings → People & accounts:** add people (you, family) and their bank accounts.
 2. **Upload** (the button at the top of the left rail on desktop, the round button at the bottom-right on phones): pick the account and drop CSV/Excel/PDF statements.
    Every file is checked against the account number, and its running balance is verified so missing transactions are flagged.
 3. **Dashboard:** year & month, last 30 days / 3 / 6 months, financial year, or custom dates. Tap a bar or a category to drill in.
 4. **Transactions:** tap any transaction to change its category (remembered for that merchant) or delete it (with undo).
-5. **Settings → Google account & backup:** back up to your own Google Drive, restore it on any other device, delete the backup,
-   change to another Google account (your data and backup move with you), or sign out.
-6. **Settings → Statement diagnostics:** creates an anonymised report if a statement isn't read correctly.
+5. **Settings → Google account & Drive:** sync status and **Sync now**, Remember this device, Delete Drive copy,
+   Change Google account (your data moves with you), Sign out. The ☁ button in the header shows the sync state.
+6. **Settings → Your data → Download transactions:** CSV, Excel or a PDF statement for any person, account and period.
+7. **Settings → Statement diagnostics:** creates an anonymised report if a statement isn't read correctly.
 
-## Google sign-in & Drive backup (one-time setup)
+## Google sign-in & Drive (one-time setup)
 Sign-in and backup run in the browser. There is no Cash Flow server or account database. Scopes: `openid email profile`
 (who is signed in) and `drive.file` (only the files the app created, nothing else in the Drive).
 Without a client ID, sign-in is skipped and the app works as a single local store.
+
+**How syncing works.** The Drive file is the main copy. Each change is saved to Drive about 2 seconds later while a Google
+session is active (Google's sign-in lasts about an hour, and with no server it can't be renewed without a tap, so the app
+asks you to tap **Sync** when needed). `sync.js` does a 3-way merge against the last synced version, so changes from two
+devices are combined: both sides' additions are kept, deletions stick, and for an item changed on both, the newer edit wins.
 The sign-in token is kept in memory for about an hour and is never saved.
 
 Google needs to know which website is allowed to ask for sign-in. Do this once:
@@ -64,7 +71,8 @@ about 30 days: right-click the file in Drive, then choose **Manage versions**.
 ## For developers
 - `parser.js`: statement reading (CSV/Excel/PDF with layout detection), verification, categorisation, anonymiser
 - `config.js`: generated settings (see above), never edited by hand · `scripts/make-config.py` builds it
-- `gdrive.js`: optional Google Drive backup (Google Identity Services + Drive REST API, no server)
+- `gdrive.js`: Google sign-in + Drive REST API (no server) · `sync.js`: 3-way merge of device and Drive data
+- `vendor/jspdf*.js`: jsPDF 2.5.1 + AutoTable 3.8.2 (MIT) for PDF statements, loaded only when needed
 - `app.js`: UI logic · `styles.css`: Material 3 theme · `sw.js`: offline cache · `manifest.webmanifest`: app install info
 - `vendor/`: Chart.js 4.4.1, SheetJS 0.18.5, pdf.js 3.11.174 (bundled so the app works offline)
 - **When you change any file, bump `VERSION` in `sw.js`** so installed apps pick up the update.

@@ -26,13 +26,25 @@
   const readJSON = k => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
   const writeJSON = (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } };
 
-  /* Google accounts that have signed in on this device: {sub: {sub, email, name, given, last}}. sub is Google's
-     permanent account ID. Each account's data lives under its own key, so people sharing a device don't see each other's. */
+  /* Who is signed in, and where their data lives on this device. Google Drive holds the main copy (see "sync").
+     - "Remember this device" on: localStorage, so it survives closing the browser and works offline.
+     - off (shared computer): sessionStorage, which the browser wipes when the tab closes.
+     Each Google account (by its permanent ID, "sub") has its own keys, so people sharing a device stay separate. */
+  const SESSION_USER = 'cashflow.sessionUser';
   const signInRequired = () => !!(window.CFDrive && CFDrive.configured());
-  const knownAccounts = () => readJSON(ACCOUNTS_KEY) || {};
+  const knownAccounts = () => readJSON(ACCOUNTS_KEY) || {};            // remembered accounts only
+  const readS = k => { try { return JSON.parse(sessionStorage.getItem(k)); } catch (e) { return null; } };
+  const writeS = (k, v) => { try { v == null ? sessionStorage.removeItem(k) : sessionStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* ignore */ } };
   let user = null;
-  if (signInRequired()) { const cur = readJSON(CURRENT_KEY); user = (cur && knownAccounts()[cur]) || null; }
+  if (signInRequired()) {
+    user = readS(SESSION_USER);
+    if (!user) { const cur = readJSON(CURRENT_KEY); user = (cur && knownAccounts()[cur]) || null; }
+  }
+  const area = (u = user) => (u && !u.remember ? sessionStorage : localStorage);
   const dataKey = (u = user) => u ? `${KEY}.${u.sub}` : KEY;
+  const metaKey = (u = user) => `cashflow.sync.${u.sub}`;
+  const readArea = (u, k) => { try { return JSON.parse(area(u).getItem(k)); } catch (e) { return null; } };
+  const writeArea = (u, k, v) => { try { v == null ? area(u).removeItem(k) : area(u).setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } };
   const gated = () => signInRequired() && !user;
   /** Data saved on this device before sign-in existed (or when sign-in isn't set up). */
   function legacyData() {
@@ -46,13 +58,15 @@
   }
   function load() {
     if (!user) return legacyData() || fresh();
-    const d = readJSON(dataKey());
+    const d = readArea(user, dataKey());
     return d && d.version === 2 ? d : fresh();
   }
-  function save() {
+  /** Save on this device, then (when signed in) mark it for syncing to Google Drive. */
+  function save(opts) {
     if (gated()) return; // nobody signed in yet: nothing to save
-    try { localStorage.setItem(dataKey(), JSON.stringify(db)); }
-    catch (e) { toast('Could not save. Browser storage may be full or blocked. Back up from Settings.'); }
+    try { area().setItem(dataKey(), JSON.stringify(db)); }
+    catch (e) { toast('Could not save. Browser storage may be full or blocked.'); }
+    if (user && !(opts && opts.noSync)) markDirty();
   }
 
   let db = load();
@@ -910,24 +924,14 @@
     save(); toast(n ? `${n} transactions re-categorised.` : 'Everything is already up to date.');
   };
 
-  /* ---------- data ---------- */
-  const download = (name, text, type) => {
-    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  /* ---------- downloads: CSV / Excel / PDF for a chosen person, account and period ---------- */
+  const download = (name, data, type) => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(data instanceof Blob ? data : new Blob([data], { type }));
+    a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   };
-  $('exportBtn').onclick = () => download(`cashflow-backup-${today()}.json`, JSON.stringify(db), 'application/json');
-  $('csvBtn').onclick = () => {
-    const rows = [['Date', 'Person', 'Account', 'Type', 'Amount', 'Category', 'Merchant', 'Description']].concat(
-      db.txns.slice().sort((a, b) => a.date.localeCompare(b.date)).map(t => {
-        const a = accountOf(t.accountId);
-        return [t.date, profileOf(a?.profileId)?.name || '', a?.name || '', t.type === 'credit' ? 'Income' : 'Expense', t.amount, t.category, t.merchant, t.desc];
-      }));
-    // a leading = + - @ would make Excel run the cell as a formula; prefix with ' (CSV injection guard)
-    const cell = c => { let s = String(c); if (typeof c !== 'number' && /^[=+\-@\t\r]/.test(s)) s = "'" + s; return `"${s.replace(/"/g, '""')}"`; };
-    download('cashflow-transactions.csv', '﻿' + rows.map(r => r.map(cell).join(',')).join('\r\n'), 'text/csv');
-  };
-  $('importBtn').onclick = () => $('backupInput').click();
-  /** Parse and validate backup text; throws if it isn't a Cash Flow backup. */
+  /** Parse and validate Cash Flow data (the Drive file); throws if it isn't Cash Flow data. */
   function parseBackup(text) {
     let d = JSON.parse(text);
     if (!d || typeof d !== 'object') throw 0;
@@ -935,18 +939,168 @@
     if (!Array.isArray(d.profiles) || !d.profiles.length || !Array.isArray(d.txns)) throw 0;
     return d;
   }
-  function applyBackup(d) {
-    db = d; recompile(); save(); view.profile = db.profiles[0].id; view.acct = 'all'; initFilters(false); renderAll();
-    toast(`Restored ${db.txns.length} transactions.`);
+  function exportSel() {
+    const p = $('exProfile').value, a = $('exAcct').value;
+    const accts = db.accounts.filter(x => (p === 'all' || x.profileId === p) && (a === 'all' || x.id === a));
+    const ids = new Set(accts.map(x => x.id));
+    return { p, a, all: db.txns.filter(t => ids.has(t.accountId)).sort((x, y) => x.date.localeCompare(y.date) || (x.type === 'credit' ? -1 : 1)) };
   }
-  $('backupInput').onchange = async e => {
-    const f = e.target.files[0]; e.target.value = ''; if (!f) return;
-    let d;
-    try { d = parseBackup(await f.text()); } catch (_) { return toast('That file is not a Cash Flow backup.'); }
-    if (confirm('Replace everything in this browser with the backup?')) applyBackup(d);
+  function exportRange() { const { all } = exportSel(); return all.length ? [all[0].date, all[all.length - 1].date] : [null, null]; }
+  function exportPeriod() { let f = $('exFrom').value, t = $('exTo').value; if (f && t && f > t) [f, t] = [t, f]; return [f, t]; }
+  function exportRows() { const [f, t] = exportPeriod(); return exportSel().all.filter(x => (!f || x.date >= f) && (!t || x.date <= t)); }
+  const sumOf = (rows, type) => rows.reduce((s, t) => s + (t.type === type ? t.amount : 0), 0);
+  function syncExportDates() {
+    const [min, max] = exportRange();
+    for (const id of ['exFrom', 'exTo']) { const el = $(id); el.min = min || ''; el.max = max || ''; el.disabled = !min; }
+    $('exFrom').value = min || ''; $('exTo').value = max || '';
+    renderExportCount();
+  }
+  function renderExportCount() {
+    const [min, max] = exportRange();
+    for (const id of ['exFrom', 'exTo']) { const el = $(id); if (min && el.value && (el.value < min || el.value > max)) el.value = el.value < min ? min : max; }
+    const rows = exportRows();
+    $('exRange').textContent = min ? `Transactions for this selection run from ${fmtDate(min)} to ${fmtDate(max)}.` : 'There are no transactions for this selection yet.';
+    $('exCount').textContent = rows.length ? `${rows.length} transactions · Income ${fmt(sumOf(rows, 'credit'))} · Expense ${fmt(sumOf(rows, 'debit'))}` : 'No transactions in this period.';
+    ['exCsv', 'exXlsx', 'exPdf'].forEach(id => ($(id).disabled = !rows.length));
+  }
+  function fillExportAccts() {
+    const p = $('exProfile').value;
+    $('exAcct').innerHTML = '<option value="all">All accounts</option>' + db.accounts.filter(a => p === 'all' || a.profileId === p)
+      .map(a => `<option value="${a.id}">${esc(acctLabel(a))}${p === 'all' ? ' · ' + esc(profileOf(a.profileId)?.name || '') : ''}</option>`).join('');
+  }
+  $('downloadBtn').onclick = () => {
+    const sel = $('exProfile');
+    sel.innerHTML = db.profiles.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('') + (db.profiles.length > 1 ? '<option value="all">Everyone</option>' : '');
+    sel.value = view.profile === 'all' ? (db.profiles.length > 1 ? 'all' : db.profiles[0].id) : (profileOf(view.profile) ? view.profile : db.profiles[0].id);
+    fillExportAccts();
+    if (view.acct !== 'all' && [...$('exAcct').options].some(o => o.value === view.acct)) $('exAcct').value = view.acct;
+    syncExportDates(); openDlg('exportDlg');
+  };
+  $('exProfile').onchange = () => { fillExportAccts(); syncExportDates(); };
+  $('exAcct').onchange = syncExportDates;
+  $('exFrom').onchange = $('exTo').onchange = renderExportCount;
+  const exportWho = () => { const { p, a } = exportSel(); return a !== 'all' ? `${acctLabel(accountOf(a))} (${profileOf(accountOf(a)?.profileId)?.name || ''})` : p === 'all' ? 'Everyone, all accounts' : `${profileOf(p)?.name || ''}, all accounts`; };
+  const exportName = ext => {
+    const { p, a } = exportSel(), [f, t] = exportPeriod();
+    const who = a !== 'all' ? acctLabel(accountOf(a)) : p === 'all' ? 'everyone' : profileOf(p)?.name || '';
+    return `cashflow_${who.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'export'}_${f}_to_${t}.${ext}`;
+  };
+  const rowInfo = t => { const a = accountOf(t.accountId); return { person: profileOf(a?.profileId)?.name || '', account: acctLabel(a) }; };
+  function monthly(rows) {
+    const m = new Map();
+    for (const t of rows) { const k = t.date.slice(0, 7), v = m.get(k) || { inc: 0, exp: 0 }; if (t.type === 'credit') v.inc += t.amount; else v.exp += t.amount; m.set(k, v); }
+    return [...m].sort(([x], [y]) => x.localeCompare(y)).map(([k, v]) => ({ month: `${MONTHS[+k.slice(5) - 1]} ${k.slice(0, 4)}`, inc: v.inc, exp: v.exp, net: v.inc - v.exp }));
+  }
+  function byCategory(rows) {
+    const m = new Map();
+    for (const t of rows) { const k = t.type + '|' + t.category, v = m.get(k) || { type: t.type, cat: t.category, total: 0, n: 0 }; v.total += t.amount; v.n++; m.set(k, v); }
+    return [...m.values()].sort((x, y) => x.type.localeCompare(y.type) || y.total - x.total);
+  }
+  const r2 = n => Math.round(n * 100) / 100;
+
+  $('exCsv').onclick = () => {
+    const rows = exportRows();
+    const out = [['Date', 'Person', 'Account', 'Type', 'Amount', 'Category', 'Merchant', 'Description', 'Balance']].concat(rows.map(t => {
+      const i = rowInfo(t);
+      return [t.date, i.person, i.account, t.type === 'credit' ? 'Income' : 'Expense', t.amount, t.category, t.merchant, t.desc, t.balance ?? ''];
+    }));
+    // a leading = + - @ would make Excel run the cell as a formula; prefix with ' (CSV injection guard)
+    const cell = c => { let s = String(c); if (typeof c !== 'number' && /^[=+\-@\t\r]/.test(s)) s = "'" + s; return `"${s.replace(/"/g, '""')}"`; };
+    download(exportName('csv'), '﻿' + out.map(r => r.map(cell).join(',')).join('\r\n'), 'text/csv;charset=utf-8');
   };
 
-  /* ---------- Google account & Drive backup (the user's own Drive; see gdrive.js) ---------- */
+  $('exXlsx').onclick = () => {
+    if (!window.XLSX) return toast('The Excel library failed to load. Try reloading the page.');
+    const rows = exportRows(), [f, t] = exportPeriod(), inc = sumOf(rows, 'credit'), exp = sumOf(rows, 'debit');
+    const MONEY = '#,##0.00', DATE = 'dd-mmm-yyyy';
+    const serial = iso => { const [y, m, d] = iso.split('-').map(Number); return (Date.UTC(y, m - 1, d) - Date.UTC(1899, 11, 30)) / 864e5; };
+    const sheet = (aoa, widths, fmtCols) => {
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      ws['!cols'] = widths.map(w => ({ wch: w }));
+      for (const addr in ws) {
+        if (addr[0] === '!') continue;
+        const c = ws[addr], col = XLSX.utils.decode_cell(addr).c;
+        if (c.t === 'n' && fmtCols[col]) c.z = fmtCols[col];
+      }
+      return ws;
+    };
+    const summary = [['Cash Flow statement'], ['Selection', exportWho()], ['Period', `${fmtDate(f)} to ${fmtDate(t)}`], ['Generated', fmtDate(today())], [],
+      ['Income', r2(inc)], ['Expense', r2(exp)], ['Net', r2(inc - exp)], ['Transactions', rows.length], [],
+      ['Month', 'Income', 'Expense', 'Net'], ...monthly(rows).map(m => [m.month, r2(m.inc), r2(m.exp), r2(m.net)]), [],
+      ['Category', 'Type', 'Total', 'Transactions'], ...byCategory(rows).map(c => [c.cat, c.type === 'credit' ? 'Income' : 'Expense', r2(c.total), c.n])];
+    const ws1 = sheet(summary, [24, 34, 14, 14], { 1: MONEY, 2: MONEY, 3: MONEY });
+    if (ws1.B9) delete ws1.B9.z; // the transaction count is not money
+    const tx = [['Date', 'Person', 'Account', 'Category', 'Merchant', 'Description', 'Income', 'Expense', 'Balance']];
+    for (const x of rows) { const i = rowInfo(x); tx.push([serial(x.date), i.person, i.account, x.category, x.merchant, x.desc, x.type === 'credit' ? x.amount : null, x.type === 'debit' ? x.amount : null, x.balance ?? null]); }
+    tx.push([], ['Total', '', '', '', '', '', r2(inc), r2(exp)]);
+    const ws2 = sheet(tx, [12, 14, 22, 20, 22, 60, 13, 13, 13], { 0: DATE, 6: MONEY, 7: MONEY, 8: MONEY });
+    // the category table's transaction counts are plain numbers
+    for (let r = 0; r < summary.length; r++) if (summary[r][0] === 'Category') { for (let k = r + 1; k < summary.length && summary[k].length; k++) { const c = ws1[XLSX.utils.encode_cell({ r: k, c: 3 })]; if (c) delete c.z; } }
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws1, 'Summary');
+    XLSX.utils.book_append_sheet(wb, ws2, 'Transactions');
+    XLSX.writeFile(wb, exportName('xlsx'));
+  };
+
+  let pdfLib = null;
+  const loadScript = src => new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => { s.remove(); rej(new Error('load')); }; document.head.appendChild(s); });
+  async function jsPDFReady() {
+    const ok = () => window.jspdf && window.jspdf.jsPDF && window.jspdf.jsPDF.API.autoTable;
+    if (!ok()) {
+      pdfLib = pdfLib || loadScript('vendor/jspdf.umd.min.js').then(() => loadScript('vendor/jspdf.plugin.autotable.min.js'));
+      try { await pdfLib; } catch (e) { pdfLib = null; throw e; }
+    }
+    if (!ok()) throw new Error('PDF library not available');
+    return window.jspdf.jsPDF;
+  }
+  $('exPdf').onclick = async () => {
+    const btn = $('exPdf'), label = btn.innerHTML;
+    btn.disabled = true; btn.textContent = 'Preparing…';
+    try {
+      const JsPDF = await jsPDFReady();
+      const rows = exportRows(), [f, t] = exportPeriod(), inc = sumOf(rows, 'credit'), exp = sumOf(rows, 'debit');
+      // the PDF's built-in fonts cover Latin characters only: show ₹ as Rs. and drop anything else they can't draw
+      const txt = s => String(s ?? '').replace(/₹/g, 'Rs.').replace(/••/g, 'ending ').replace(/[^\x20-\x7E\xA0-\xFF]/g, '').replace(/\s+/g, ' ').trim();
+      const num = n => n == null || n === '' ? '' : Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const doc = new JsPDF({ unit: 'pt', format: 'a4' });
+      const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight(), M = 40;
+      const blue = [0, 90, 193], base = { theme: 'grid', margin: { left: M, right: M }, styles: { fontSize: 9, cellPadding: 4, lineColor: [210, 212, 220], lineWidth: 0.5 }, headStyles: { fillColor: blue, textColor: 255, fontStyle: 'bold' } };
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(18); doc.text('Cash Flow statement', M, 52);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(80);
+      doc.text(txt(exportWho()), M, 70);
+      doc.text(`Period: ${fmtDate(f)} to ${fmtDate(t)}     Generated: ${fmtDate(today())}     Amounts in INR`, M, 85);
+      doc.setTextColor(0);
+      const right = { halign: 'right' };
+      doc.autoTable(Object.assign({}, base, { startY: 100, head: [['Income', 'Expense', 'Net', 'Transactions']], body: [[num(inc), num(exp), num(inc - exp), String(rows.length)]],
+        styles: Object.assign({}, base.styles, { fontSize: 11, halign: 'right' }), headStyles: Object.assign({}, base.headStyles, right) }));
+      const heading = (s, y) => { doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.text(s, M, y); doc.setFont('helvetica', 'normal'); return y + 6; };
+      doc.autoTable(Object.assign({}, base, { startY: heading('Month by month', doc.lastAutoTable.finalY + 26), head: [['Month', 'Income', 'Expense', 'Net']],
+        body: monthly(rows).map(m => [m.month, num(m.inc), num(m.exp), num(m.net)]), columnStyles: { 1: right, 2: right, 3: right } }));
+      doc.autoTable(Object.assign({}, base, { startY: heading('By category', doc.lastAutoTable.finalY + 26), head: [['Category', 'Type', 'Total', 'Transactions']],
+        body: byCategory(rows).map(c => [txt(c.cat), c.type === 'credit' ? 'Income' : 'Expense', num(c.total), String(c.n)]), columnStyles: { 2: right, 3: right } }));
+      doc.addPage();
+      doc.autoTable(Object.assign({}, base, { startY: heading('Transactions', 52), head: [['Date', 'Description', 'Category', 'Income', 'Expense', 'Balance']],
+        body: rows.map(x => [fmtDate(x.date), txt(x.desc).slice(0, 120), txt(x.category), x.type === 'credit' ? num(x.amount) : '', x.type === 'debit' ? num(x.amount) : '', num(x.balance)]),
+        styles: Object.assign({}, base.styles, { fontSize: 8, overflow: 'linebreak' }),
+        columnStyles: { 0: { cellWidth: 58 }, 1: { cellWidth: 'auto' }, 2: { cellWidth: 78 }, 3: Object.assign({ cellWidth: 62 }, right), 4: Object.assign({ cellWidth: 62 }, right), 5: Object.assign({ cellWidth: 66 }, right) } }));
+      const pages = doc.getNumberOfPages();
+      for (let i = 1; i <= pages; i++) {
+        doc.setPage(i); doc.setFontSize(8); doc.setTextColor(120);
+        doc.text('Cash Flow', M, H - 20); doc.text(`Page ${i} of ${pages}`, W - M, H - 20, { align: 'right' });
+      }
+      doc.save(exportName('pdf'));
+    } catch (e) {
+      toast(navigator.onLine === false ? 'The PDF maker is not on this device yet. Connect to the internet once, then try again.' : 'Could not create the PDF. Try reloading the page.', 7000);
+    } finally { btn.disabled = false; btn.innerHTML = label; }
+  };
+
+  $('clearBtn').onclick = () => {
+    const drive = user && CFDrive.configured() && !meta.paused;
+    if (!confirm('Delete ALL people, accounts, transactions and category settings?' + (drive ? '\n\nThis also deletes them from your Google Drive copy and your other devices when they sync.' : ''))) return;
+    db = fresh(); recompile(); save(); view.profile = db.profiles[0].id; view.acct = 'all'; view.cat = ''; initFilters(false); renderAll();
+  };
+
+  /* ================= Google account & Drive sync (the user's own Drive; see gdrive.js and sync.js) ================= */
   const fmtWhen = iso => new Date(iso).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
   const DRIVE_ERR = {
     'not-configured': 'Google sign-in has not been set up for this copy of the app yet.',
@@ -955,20 +1109,25 @@
     'popup-blocked': 'The browser blocked the Google sign-in window. Allow pop-ups for this site, then try again.',
     cancelled: 'Google sign-in was closed before it finished.',
     denied: 'Google sign-in was cancelled.',
-    scope: 'Cash Flow needs permission to save its backup file in your Drive. Try again and tick the Google Drive box.',
-    auth: 'Your Google sign-in expired. Please try again.',
+    scope: 'Cash Flow needs permission to save its file in your Google Drive. Try again and tick the Google Drive box.',
+    auth: 'Your Google sign-in expired. Tap Sync to sign in again.',
     'drive-full': 'Your Google Drive is full. Free up some space, then try again.',
   };
   const errText = e => DRIVE_ERR[e && e.code] || (e && e.message) || 'Something went wrong with Google.';
   const firstName = u => (u.given || (u.name || '').split(' ')[0] || (u.email || '').split('@')[0] || '').trim();
   let sess = null;   // Google session for the signed-in account: memory only, about 1 hour
   let busy = false;
+  let meta = (user && readArea(user, metaKey())) || {};  // sync state: base, remoteModified, syncedAt, editedAt, dirty, paused
+  const setMeta = patch => { meta = Object.assign({}, meta, patch); if (user) writeArea(user, metaKey(), meta); };
 
   function setUser(u) {
-    const all = knownAccounts();
-    if (u) all[u.sub] = u;
-    writeJSON(ACCOUNTS_KEY, all); writeJSON(CURRENT_KEY, u ? u.sub : null);
+    if (u && u.remember) {
+      const all = knownAccounts(); all[u.sub] = u;
+      writeJSON(ACCOUNTS_KEY, all); writeJSON(CURRENT_KEY, u.sub); writeS(SESSION_USER, null);
+    } else if (u) { writeS(SESSION_USER, u); writeJSON(CURRENT_KEY, null); }
+    else { writeS(SESSION_USER, null); writeJSON(CURRENT_KEY, null); }
     user = u;
+    meta = (u && readArea(u, metaKey(u))) || {};
   }
   /** A Drive session for the signed-in account. Opens Google's popup only when needed, so call it straight from a click. */
   async function session() {
@@ -979,7 +1138,101 @@
     return (sess = s);
   }
 
-  /* sign-in screen */
+  /* ---- sync with Google Drive ---- */
+  let syncing = false, syncQueued = false, syncTimer = null, syncErr = '', nudged = false;
+  const syncOn = () => !!user && CFDrive.configured() && !meta.paused;
+  function markDirty() {
+    if (!syncOn()) return;
+    setMeta({ dirty: true, editedAt: Date.now() });
+    renderSync(); scheduleSync();
+  }
+  function scheduleSync(ms = 2000) {
+    clearTimeout(syncTimer);
+    if (!syncOn() || !meta.dirty) return;
+    if (CFDrive.valid(sess) && sess.drive && navigator.onLine !== false) syncTimer = setTimeout(() => syncNow(false), ms);
+    else if (!nudged && navigator.onLine !== false) {
+      nudged = true;
+      // after the action's own message ("Transaction added." etc.), not instead of it
+      setTimeout(() => meta.dirty && toast(user.remember ? 'Saved on this device. Tap Sync to save it to your Google Drive too.' : "Not in your Google Drive yet. Tap Sync so it isn't lost when this tab closes.", 12000, { label: 'Sync', fn: () => syncNow(true) }), 1800);
+    }
+  }
+  function refreshView() { recompile(); initFilters(true); renderAll(); }
+  /** Bring this device and Google Drive up to date with each other. manual: started by a click (may open Google's popup). */
+  async function syncNow(manual) {
+    if (!syncOn()) return false;
+    if (syncing) { syncQueued = true; return false; }
+    syncing = true; syncErr = ''; clearTimeout(syncTimer); renderSync();
+    let changedHere = false;
+    try {
+      const s = manual ? await session() : sess;
+      if (!CFDrive.valid(s)) throw Object.assign(new Error('auth'), { code: 'auth' });
+      for (let round = 0; ; round++) {
+        if (round > 3) throw new Error('Your Google Drive copy kept changing while syncing. Please try again.');
+        const snap = JSON.stringify(db), local = JSON.parse(snap), editedAt = meta.editedAt || 0;
+        const f = await CFDrive.find(s);
+        let remote = null;
+        if (f && f.modified !== meta.remoteModified) {
+          try { remote = parseBackup(await CFDrive.download(s, f.id)); }
+          catch (e) { if (e && e.code) throw e; throw new Error('The Cash Flow file in your Google Drive is damaged, so it was left as it is. Delete the Drive copy in Settings, then turn sync back on to replace it.'); }
+        }
+        // a brand-new device with nothing on it simply takes the Drive copy
+        const localEmpty = !meta.base && !local.accounts.length && !local.txns.length;
+        const merged = remote ? (localEmpty ? remote : CFSync.merge(local, remote, meta.base || null, editedAt > Date.parse(f.modified))) : local;
+        const needUpload = !f || (remote ? !CFSync.same(merged, remote) : !!meta.dirty);
+        let up = null;
+        if (needUpload) {
+          if (f) { const again = await CFDrive.find(s); if (again && again.modified !== f.modified) continue; } // saved elsewhere meanwhile: merge again
+          up = await CFDrive.save(s, JSON.stringify(merged), { txns: merged.txns.length, people: merged.profiles.length }, f && f.id);
+        }
+        // the user may have changed something while we were talking to Google: fold those edits in too
+        const editedDuring = JSON.stringify(db) !== snap;
+        const next = editedDuring ? CFSync.merge(db, merged, CFSync.fingerprint(local), true) : merged;
+        if (!CFSync.same(next, db)) { changedHere = true; db = next; writeArea(user, dataKey(), db); }
+        setMeta({ base: CFSync.fingerprint(merged), remoteModified: up ? up.modifiedTime : f ? f.modified : null, syncedAt: new Date().toISOString(), dirty: editedDuring });
+        if (!editedDuring) break;
+      }
+      nudged = false;
+      return true;
+    } catch (e) {
+      syncErr = errText(e);
+      if (manual) toast(syncErr, 8000);
+      return false;
+    } finally {
+      syncing = false;
+      if (changedHere) refreshView(); else renderSync();
+      if (syncQueued) { syncQueued = false; scheduleSync(300); }
+    }
+  }
+  function syncState() {
+    if (!user || !CFDrive.configured()) return null;
+    if (meta.paused) return { ic: 'cloud_off', text: 'Drive sync is off. Your data is only on this device.' };
+    if (syncing) return { ic: 'cloud_sync', text: 'Syncing with Google Drive…', spin: true };
+    if (navigator.onLine === false) return { ic: 'cloud_off', text: meta.dirty ? "You're offline. Your changes are kept on this device and sync when you're back online." : "You're offline. Showing the copy on this device." };
+    if (syncErr) return { ic: 'sync_problem', text: `Not synced: ${syncErr}`, dot: true };
+    if (meta.dirty) return { ic: 'cloud_upload', text: 'Some changes on this device are not in Google Drive yet.', dot: true };
+    if (!meta.syncedAt) return { ic: 'cloud_sync', text: 'Not synced with Google Drive yet.', dot: true };
+    return { ic: 'cloud_done', text: `Saved to Google Drive · ${fmtWhen(meta.syncedAt)}` + (CFDrive.valid(sess) ? '' : '. Tap Sync to get changes from your other devices.') };
+  }
+  function renderSync() {
+    const st = syncState(), b = $('syncBtn');
+    b.hidden = !st;
+    if (st) {
+      $('syncIc').textContent = st.ic; b.classList.toggle('spin', !!st.spin); $('syncDot').hidden = !st.dot;
+      b.title = st.text; b.setAttribute('aria-label', 'Sync with Google Drive. ' + st.text);
+    }
+    $('syncLine').hidden = !st;
+    if (st) { $('syncLineIc').textContent = st.ic; $('driveStatus').textContent = st.text; }
+    $('syncNowBtn').disabled = busy || syncing || !st || !!meta.paused;
+  }
+  $('syncBtn').onclick = $('syncNowBtn').onclick = async () => {
+    if (meta.paused) { goPage('settings'); $('driveCard').scrollIntoView({ block: 'start' }); return; }
+    if (await syncNow(true)) toast('Synced with Google Drive.');
+  };
+  window.addEventListener('online', () => { renderSync(); scheduleSync(300); });
+  window.addEventListener('offline', () => renderSync());
+  window.addEventListener('beforeunload', e => { if (user && !user.remember && meta.dirty && !meta.paused) { e.preventDefault(); e.returnValue = ''; } });
+
+  /* ---- sign-in screen ---- */
   function renderGate(msg, isErr) {
     const g = gated();
     document.body.classList.toggle('gated', g);
@@ -990,120 +1243,137 @@
     $('gateMsg').textContent = msg || (loaded ? '' : offline ? "You're offline. Connect to the internet to sign in." : 'Loading Google sign-in…');
     $('gateMsg').classList.toggle('err', !!isErr || (!loaded && offline));
   }
+  try { $('gateRemember').checked = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true; } catch (e) { /* ignore */ }
   $('gateSignIn').onclick = async () => {
     if (busy) return;
     busy = true; renderGate('Waiting for Google…');
     try {
       const s = await CFDrive.signIn({ selectAccount: true });
       const u = await CFDrive.userInfo(s);
-      sess = s; busy = false; enterAccount(u);
+      sess = s; busy = false;
+      enterAccount(u, $('gateRemember').checked);
     } catch (e) { busy = false; renderGate(errText(e), true); }
   };
-  function enterAccount(u) {
-    const known = knownAccounts()[u.sub] || {};
-    const rec = { sub: u.sub, email: u.email, name: u.name, given: u.given, last: known.last || null };
-    const oldDrive = readJSON(OLD_DRIVE_KEY); // last backup time from before sign-in existed
-    if (oldDrive && oldDrive.email === u.email && !rec.last) rec.last = oldDrive.last || null;
-    writeJSON(OLD_DRIVE_KEY, null);
-    let d = readJSON(dataKey(rec));
+  function enterAccount(u, remember) {
+    const known = knownAccounts()[u.sub];
+    const rec = { sub: u.sub, email: u.email, name: u.name, given: u.given, remember: !!(remember || known) };
+    writeJSON(OLD_DRIVE_KEY, null); // state from the earlier backup-only version
+    let d = readArea(rec, dataKey(rec)), adopted = false;
     if (!(d && d.version === 2)) {
       d = null;
       const legacy = legacyData();
       if (legacy && (legacy.txns.length || legacy.accounts.length) &&
           confirm(`This device has Cash Flow data from before sign-in (${legacy.txns.length} transactions).\n\nMove it into ${u.email}?\n\nChoose Cancel if it belongs to someone else. It stays on this device for them.`)) {
-        d = legacy; writeJSON(KEY, null); writeJSON(OLD_KEY, null);
+        d = legacy; adopted = true; writeJSON(KEY, null); writeJSON(OLD_KEY, null);
       }
       d = d || fresh();
       if (d.profiles.length === 1 && d.profiles[0].name === 'Me' && firstName(rec)) d.profiles[0].name = firstName(rec);
     }
     setUser(rec);
     db = d; recompile();
+    writeArea(rec, dataKey(rec), db);
+    if (adopted) setMeta({ dirty: true, editedAt: Date.now() });
     Object.assign(view, { page: 'dash', profile: db.profiles[0].id, acct: 'all', cat: '' });
-    initFilters(false); save(); renderGate(); renderAll();
+    initFilters(false); renderGate(); renderAll();
     toast(`Signed in as ${u.email}.`);
+    if (CFDrive.valid(sess) && sess.drive) syncNow(false);
+    else { toast('To load your data from Google Drive, tap Sync and tick the Google Drive box.', 12000, { label: 'Sync', fn: () => syncNow(true) }); }
   }
 
-  /* account card */
+  /* ---- account card ---- */
   function renderAccount() {
     const on = CFDrive.configured(), u = user;
-    $('whoBox').hidden = $('acctActions').hidden = !u;
-    if (u) { $('whoInitial').textContent = firstName(u).slice(0, 1); $('whoName').textContent = u.name || firstName(u); $('whoEmail').textContent = u.email; }
-    ['driveBackupBtn', 'driveRestoreBtn', 'driveDeleteBtn', 'changeAcctBtn', 'signOutBtn'].forEach(id => ($(id).disabled = !u || busy));
-    $('driveStatus').textContent = !on ? 'Google sign-in is not set up for this copy of the app (see README.md), so Drive backup is off.'
-      : !u ? '' : u.last ? `Last backup from this device: ${fmtWhen(u.last)}.` : 'No backup from this device yet.';
+    $('whoBox').hidden = $('acctActions').hidden = $('rememberRow').hidden = !u;
+    if (u) {
+      $('whoInitial').textContent = firstName(u).slice(0, 1); $('whoName').textContent = u.name || firstName(u); $('whoEmail').textContent = u.email;
+      $('rememberChk').checked = !!u.remember;
+    }
+    ['driveDeleteBtn', 'driveOnBtn', 'changeAcctBtn', 'signOutBtn', 'rememberChk'].forEach(id => ($(id).disabled = !u || busy));
+    $('driveDeleteBtn').hidden = !!meta.paused; $('driveOnBtn').hidden = !meta.paused; $('syncNowBtn').hidden = !!meta.paused;
+    $('driveOff').hidden = on;
     const av = $('avatarBtn');
     av.hidden = !u;
     if (u) { $('avatarInitial').textContent = firstName(u).slice(0, 1); av.title = `Signed in as ${u.email}`; av.setAttribute('aria-label', `Google account: ${u.email}`); }
+    renderSync();
   }
   $('avatarBtn').onclick = () => { goPage('settings'); $('driveCard').scrollIntoView({ block: 'start' }); };
   async function driveRun(btn, label, fn) {
     if (busy) return;
-    const b = $(btn), text = b.textContent;
+    const b = $(btn), html = b.innerHTML;
     busy = true; renderAccount(); b.textContent = label;
     try { await fn(); }
     catch (e) { toast(errText(e), 8000); }
-    finally { busy = false; b.textContent = text; renderAccount(); }
+    finally { busy = false; b.innerHTML = html; renderAccount(); }
   }
-  $('driveBackupBtn').onclick = () => driveRun('driveBackupBtn', 'Backing up…', async () => {
-    const s = await session();
-    const existing = await CFDrive.find(s);
-    if (existing && existing.txns > db.txns.length && !confirm(`Your Google Drive backup (${fmtWhen(existing.modified)}) has ${existing.txns} transactions, but this device has only ${db.txns.length}.\n\nReplace the Drive backup with this device's data?\n\nTo copy the Drive data onto this device instead, choose Cancel, then "Restore from Drive".`)) return;
-    const f = await CFDrive.save(s, JSON.stringify(db), { txns: db.txns.length, people: db.profiles.length }, existing && existing.id);
-    setUser(Object.assign({}, user, { last: (f && f.modifiedTime) || new Date().toISOString() }));
-    toast(`Backed up ${db.txns.length} transactions to your Google Drive.`);
-  });
-  $('driveRestoreBtn').onclick = () => driveRun('driveRestoreBtn', 'Restoring…', async () => {
-    const s = await session();
-    const f = await CFDrive.find(s);
-    if (!f) return toast(`No Cash Flow backup found in ${user.email}'s Google Drive. Back up from your other device first.`, 7000);
-    let d;
-    try { d = parseBackup(await CFDrive.download(s, f.id)); } catch (e) { if (e && e.code) throw e; return toast('The file in Google Drive is not a valid Cash Flow backup.', 7000); }
-    if (confirm(`Replace everything in this browser with your Google Drive backup from ${fmtWhen(f.modified)} (${d.txns.length} transactions)?`)) applyBackup(d);
-  });
   $('driveDeleteBtn').onclick = () => driveRun('driveDeleteBtn', 'Deleting…', async () => {
     const s = await session();
     const f = await CFDrive.find(s);
-    if (!f) return toast(`There is no Cash Flow backup in ${user.email}'s Google Drive.`);
-    if (!confirm(`Delete your Cash Flow backup from Google Drive (${user.email})?\n\nBackup from ${fmtWhen(f.modified)}, ${f.txns} transactions.\n\nIt moves to the Drive Bin, where you can still restore it for 30 days. Your data on this device is not affected.`)) return;
-    await CFDrive.trash(s, f.id);
-    setUser(Object.assign({}, user, { last: null }));
-    toast('Backup deleted. It is in your Google Drive Bin for 30 days.');
+    if (!confirm(`Delete the Cash Flow copy from your Google Drive (${user.email})?\n\n` + (f ? `Saved ${fmtWhen(f.modified)}, ${f.txns} transactions. It moves to the Drive Bin, where you can restore it for 30 days.\n\n` : '') +
+      `Drive sync is then turned off on this device, so your data stays only here` + (user.remember ? '.' : ', and is removed when you close this tab.') + ' Other devices that are still signed in will save a new copy when they sync.')) return;
+    if (f) await CFDrive.trash(s, f.id);
+    setMeta({ paused: true, dirty: false, base: null, remoteModified: null, syncedAt: null });
+    toast('Drive copy deleted. It is in your Google Drive Bin for 30 days.');
   });
+  $('driveOnBtn').onclick = () => driveRun('driveOnBtn', 'Turning on…', async () => {
+    await session();
+    setMeta({ paused: false, dirty: true, editedAt: Date.now() });
+    if (!(await syncNow(false))) throw new Error(syncErr || 'Could not sync.');
+    toast('Drive sync is on again.');
+  });
+  $('rememberChk').onchange = e => {
+    const on = e.target.checked;
+    if (!on && !confirm('Stop keeping your data on this device?\n\nIt stays in your Google Drive. On this device it is removed when you close this tab.' +
+        (meta.dirty || meta.paused ? '\n\nWarning: some of your data is not in Google Drive. Choose Cancel and Sync first.' : ''))) { e.target.checked = true; return; }
+    const old = user, keepMeta = meta;
+    writeArea(old, dataKey(old), null); writeArea(old, metaKey(old), null);
+    if (!on) { const all = knownAccounts(); delete all[old.sub]; writeJSON(ACCOUNTS_KEY, all); }
+    setUser(Object.assign({}, old, { remember: on }));
+    writeArea(user, dataKey(), db); setMeta(keepMeta);
+    renderAccount();
+    toast(on ? 'This device keeps a copy now: it opens quickly and works offline.' : 'This device no longer keeps your data after the tab closes.');
+  };
 
-  /* sign out */
-  $('signOutBtn').onclick = () => { $('soEmail').textContent = user.email; $('soWipe').checked = false; openDlg('signOutDlg'); };
+  /* ---- sign out ---- */
+  $('signOutBtn').onclick = () => {
+    const r = user.remember;
+    $('soText').innerHTML = r ? `Your data stays on this device. It opens again the next time <b>${esc(user.email)}</b> signs in here.`
+      : `This device doesn't keep your data, so it is removed from this browser now. Your Google Drive copy stays.`;
+    $('soWipeRow').hidden = $('soHint').hidden = !r; $('soWipe').checked = false;
+    $('soWarn').hidden = !(meta.dirty || meta.paused);
+    openDlg('signOutDlg');
+  };
   $('soGo').onclick = () => {
-    const wipe = $('soWipe').checked;
-    if (wipe && !confirm(`Remove all of ${user.email}'s Cash Flow data from this device?\n\nIt can only be brought back from a Google Drive backup.`)) return;
-    if (wipe) { writeJSON(dataKey(), null); const all = knownAccounts(); delete all[user.sub]; writeJSON(ACCOUNTS_KEY, all); }
+    const wipe = !user.remember || $('soWipe').checked;
+    if (wipe && (meta.dirty || meta.paused) && !confirm('Some of your data is not in Google Drive and will be lost from this device. Sign out anyway?')) return;
+    if (wipe && user.remember && !confirm(`Remove all of ${user.email}'s Cash Flow data from this device?`)) return;
     const email = user.email;
-    sess = null; user = null; writeJSON(CURRENT_KEY, null);
+    if (wipe) { writeArea(user, dataKey(), null); writeArea(user, metaKey(), null); const all = knownAccounts(); delete all[user.sub]; writeJSON(ACCOUNTS_KEY, all); }
+    sess = null; clearTimeout(syncTimer); setUser(null);
     db = fresh(); recompile();
     $('signOutDlg').close(); renderGate(); renderAccount();
     toast(wipe ? `Signed out. ${email}'s data was removed from this device.` : `Signed out of ${email}.`);
   };
 
-  /* change Google account: moves this device's data and the Drive backup to another account */
+  /* ---- change Google account: moves the data and the Drive copy to another account ---- */
   let mv = null;
   function moveStep(step, errMsg) {
     mv.step = step;
     const e = errMsg ? `<p class="move-err" role="alert">${esc(errMsg)}</p>` : '';
-    const steps = n => `<ol class="move-steps">${[`Confirm your current account (${esc(mv.old.email)})`, 'Choose the new Google account', 'Your data and backup are copied to it and checked', 'Choose whether to delete the backup from the old account']
+    const steps = n => `<ol class="move-steps">${[`Confirm your current account (${esc(mv.old.email)}) and sync it`, 'Choose the new Google account', 'Your data is copied to its Google Drive and checked', 'Choose whether to delete the copy in the old account']
       .map((t, i) => `<li class="${i < n ? 'done' : i === n ? 'on' : ''}">${t}</li>`).join('')}</ol>`;
     const B = { cancel: $('moveCancel'), next: $('moveNext') };
     B.cancel.hidden = false; B.next.classList.remove('danger');
     if (step === 'intro') {
-      $('moveBody').innerHTML = `<p>Move your Cash Flow data and Google Drive backup from <b>${esc(mv.old.email)}</b> to another Google account.</p>${steps(0)}${e}`;
+      $('moveBody').innerHTML = `<p>Move your Cash Flow data and Google Drive copy from <b>${esc(mv.old.email)}</b> to another Google account.</p>${steps(0)}${e}`;
       B.cancel.textContent = 'Cancel'; B.next.textContent = 'Continue';
     } else if (step === 'pick') {
-      const what = mv.fromDrive ? `the Google Drive backup (${mv.source.txns.length} transactions, which is more than this device has)` : `this device's data (${mv.source.txns.length} transactions)`;
-      $('moveBody').innerHTML = `${steps(1)}<p>Now choose the Google account to move to. If it isn't listed, choose <b>Use another account</b>.</p><p>Cash Flow will move ${what}.</p>${e}`;
+      $('moveBody').innerHTML = `${steps(1)}<p>Now choose the Google account to move to. If it isn't listed, choose <b>Use another account</b>.</p><p>Cash Flow will move your data (${db.txns.length} transactions).</p>${e}`;
       B.cancel.textContent = 'Cancel'; B.next.textContent = 'Choose new account';
     } else if (step === 'askDelete') {
-      $('moveBody').innerHTML = `${steps(3)}<p>Done: your data and backup are now in <b>${esc(user.email)}</b>.</p><p>The old backup is still in <b>${esc(mv.old.email)}</b>'s Google Drive (${fmtWhen(mv.oldFile.modified)}, ${mv.oldFile.txns} transactions). Delete it? It moves to that Drive's Bin for 30 days.</p>${e}`;
-      B.cancel.textContent = 'Keep it'; B.next.textContent = 'Delete old backup'; B.next.classList.add('danger');
+      $('moveBody').innerHTML = `${steps(3)}<p>Done: your data is now in <b>${esc(user.email)}</b>.</p><p>The old copy is still in <b>${esc(mv.old.email)}</b>'s Google Drive (${fmtWhen(mv.oldFile.modified)}, ${mv.oldFile.txns} transactions). Delete it? It moves to that Drive's Bin for 30 days.</p>${e}`;
+      B.cancel.textContent = 'Keep it'; B.next.textContent = 'Delete old copy'; B.next.classList.add('danger');
     } else if (step === 'done') {
-      $('moveBody').innerHTML = `<p>All done. You're now signed in as <b>${esc(user.email)}</b>, and your backup is in that account's Google Drive.</p>${mv.deleted ? `<p>The old backup was moved to ${esc(mv.old.email)}'s Drive Bin.</p>` : mv.oldFile ? `<p>The old backup was kept in ${esc(mv.old.email)}'s Drive.</p>` : ''}`;
+      $('moveBody').innerHTML = `<p>All done. You're now signed in as <b>${esc(user.email)}</b>, and your data is in that account's Google Drive.</p>${mv.deleted ? `<p>The old copy was moved to ${esc(mv.old.email)}'s Drive Bin.</p>` : mv.oldFile ? `<p>The old copy was kept in ${esc(mv.old.email)}'s Drive.</p>` : ''}`;
       B.cancel.hidden = true; B.next.textContent = 'Done';
     }
   }
@@ -1119,11 +1389,10 @@
       moveBusy(true, 'Checking…');
       try {
         mv.oldSess = await session();
-        mv.oldFile = await CFDrive.find(mv.oldSess);
-        mv.fromDrive = false; mv.source = db;
-        if (mv.oldFile && mv.oldFile.txns > db.txns.length) { mv.source = parseBackup(await CFDrive.download(mv.oldSess, mv.oldFile.id)); mv.fromDrive = true; }
+        if (!meta.paused && !(await syncNow(false))) throw new Error(syncErr || 'Could not sync before moving.');
+        mv.oldFile = meta.paused ? null : await CFDrive.find(mv.oldSess);
         moveBusy(false); moveStep('pick');
-      } catch (e) { moveBusy(false); moveStep('intro', e && (e.code || e.message) ? errText(e) : 'The old Drive backup could not be read.'); }
+      } catch (e) { moveBusy(false); moveStep('intro', errText(e)); }
       return;
     }
     if (step === 'pick') {
@@ -1133,23 +1402,22 @@
         const u = await CFDrive.userInfo(s);
         if (u.sub === mv.old.sub) { moveBusy(false); return moveStep('pick', `That's ${u.email}, the account you're already using. Choose a different one.`); }
         const target = await CFDrive.find(s);
-        const onDevice = readJSON(dataKey(u));
-        const warn = [target && `${u.email} already has a Cash Flow backup in its Drive (${fmtWhen(target.modified)}, ${target.txns} transactions).`,
+        const onDevice = readArea(Object.assign({ remember: mv.old.remember }, u), dataKey(u));
+        const warn = [target && `${u.email} already has Cash Flow data in its Google Drive (${fmtWhen(target.modified)}, ${target.txns} transactions).`,
           onDevice && onDevice.version === 2 && `${u.email} already has Cash Flow data on this device (${(onDevice.txns || []).length} transactions).`].filter(Boolean);
         if (warn.length && !confirm(`${warn.join('\n')}\n\nReplace it with the data you're moving?`)) { moveBusy(false); return moveStep('pick', 'Nothing was changed. Choose another account, or Cancel.'); }
         $('moveNext').textContent = 'Copying…';
-        const text = JSON.stringify(mv.source);
-        const f = await CFDrive.save(s, text, { txns: mv.source.txns.length, people: mv.source.profiles.length }, target && target.id);
+        const source = JSON.parse(JSON.stringify(db)), text = JSON.stringify(source);
+        const f = await CFDrive.save(s, text, { txns: source.txns.length, people: source.profiles.length }, target && target.id);
         if (await CFDrive.download(s, f.id) !== text) throw new Error('The copy in the new Google Drive did not match. Nothing was changed on this device; please try again.');
         // switch this device over to the new account
-        const known = knownAccounts()[u.sub] || {};
-        const rec = { sub: u.sub, email: u.email, name: u.name, given: u.given, last: f.modifiedTime || new Date().toISOString() };
-        if (!rec.name && known.name) rec.name = known.name;
-        writeJSON(dataKey(rec), mv.source);
-        writeJSON(dataKey(mv.old), null);
+        const rec = { sub: u.sub, email: u.email, name: u.name, given: u.given, remember: !!mv.old.remember };
+        writeArea(mv.old, dataKey(mv.old), null); writeArea(mv.old, metaKey(mv.old), null);
         const all = knownAccounts(); delete all[mv.old.sub]; writeJSON(ACCOUNTS_KEY, all);
+        writeArea(rec, metaKey(rec), null);
         setUser(rec); sess = s;
-        db = mv.source; recompile();
+        db = source; recompile(); writeArea(rec, dataKey(rec), db);
+        setMeta({ base: CFSync.fingerprint(source), remoteModified: f.modifiedTime, syncedAt: new Date().toISOString(), dirty: false, paused: false });
         Object.assign(view, { profile: db.profiles[0].id, acct: 'all', cat: '' });
         initFilters(false); renderAll();
         moveBusy(false); moveStep(mv.oldFile ? 'askDelete' : 'done');
@@ -1162,7 +1430,7 @@
       try {
         if (!CFDrive.valid(mv.oldSess)) {
           const s = await CFDrive.signIn({ hint: mv.old.email, needDrive: true });
-          if ((await CFDrive.userInfo(s)).sub !== mv.old.sub) throw new Error(`Please choose ${mv.old.email} to delete its old backup.`);
+          if ((await CFDrive.userInfo(s)).sub !== mv.old.sub) throw new Error(`Please choose ${mv.old.email} to delete its old copy.`);
           mv.oldSess = s;
         }
         await CFDrive.trash(mv.oldSess, mv.oldFile.id);
@@ -1171,15 +1439,16 @@
     }
   };
 
-  // load Google's sign-in library ahead of time so the sign-in popup opens straight from the click
+  // load Google's sign-in library ahead of time so the sign-in popup opens straight from a click
   const preloadGoogle = () => { if (CFDrive.configured() && navigator.onLine !== false) CFDrive.preload().then(() => renderGate(), () => renderGate()); renderGate(); };
   window.addEventListener('online', preloadGoogle);
   window.addEventListener('offline', () => renderGate());
   preloadGoogle(); renderAccount();
-  $('clearBtn').onclick = () => {
-    if (!confirm('Delete ALL people, accounts, transactions and category settings from this browser?')) return;
-    db = fresh(); recompile(); save(); view.profile = db.profiles[0].id; view.acct = 'all'; view.cat = ''; initFilters(false); renderAll();
-  };
+  // opening the app: offer to fetch changes made on other devices (needs a tap, because Google's sign-in can't run unprompted)
+  if (syncOn() && navigator.onLine !== false) {
+    if (meta.dirty) scheduleSync();
+    else { setTimeout(() => toast('Tap Sync to get the latest from your Google Drive.', 8000, { label: 'Sync', fn: () => syncNow(true) }), 600); }
+  }
 
   /* ================= sample data ================= */
   function sampleData() {
@@ -1278,5 +1547,5 @@
   if (location.hash === '#demo' && !db.txns.length) loadSample();
   applyTheme(getTheme());
   renderAll();
-  save(); // persists a migrated v1 store in the new format (skipped while nobody is signed in)
+  save({ noSync: true }); // persists a migrated v1 store in the new format (skipped while nobody is signed in)
 })();
