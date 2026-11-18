@@ -1,4 +1,4 @@
-/* Cash Flow — app logic. All data lives in this browser's localStorage, stored separately for each signed-in Google account. */
+/* CashFlow — app logic. All data lives in this browser's localStorage, stored separately for each signed-in Google account. */
 (function () {
   const KEY = 'cashflow.v2', OLD_KEY = 'cashflow.v1', THEME_KEY = 'cashflow.theme';
   const ACCOUNTS_KEY = 'cashflow.accounts', CURRENT_KEY = 'cashflow.user', OLD_DRIVE_KEY = 'cashflow.drive';
@@ -207,7 +207,7 @@
       if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
     });
     $('pageTitle').textContent = { dash: 'Dashboard', tx: 'Transactions', settings: 'Settings' }[view.page];
-    document.title = view.page === 'dash' ? 'Cash Flow' : `${$('pageTitle').textContent} · Cash Flow`;
+    document.title = view.page === 'dash' ? 'CashFlow – Smart Finance Manager' : `${$('pageTitle').textContent} · CashFlow`;
     $('dash').hidden = view.page !== 'dash';
     $('txPage').hidden = view.page !== 'tx';
     $('settings').hidden = view.page !== 'settings';
@@ -931,7 +931,7 @@
     a.download = name; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   };
-  /** Parse and validate Cash Flow data (the Drive file); throws if it isn't Cash Flow data. */
+  /** Parse and validate CashFlow data (the Drive file); throws if it isn't CashFlow data. */
   function parseBackup(text) {
     let d = JSON.parse(text);
     if (!d || typeof d !== 'object') throw 0;
@@ -1024,7 +1024,7 @@
       }
       return ws;
     };
-    const summary = [['Cash Flow statement'], ['Selection', exportWho()], ['Period', `${fmtDate(f)} to ${fmtDate(t)}`], ['Generated', fmtDate(today())], [],
+    const summary = [['CashFlow statement'], ['Selection', exportWho()], ['Period', `${fmtDate(f)} to ${fmtDate(t)}`], ['Generated', fmtDate(today())], [],
       ['Income', r2(inc)], ['Expense', r2(exp)], ['Net', r2(inc - exp)], ['Transactions', rows.length], [],
       ['Month', 'Income', 'Expense', 'Net'], ...monthly(rows).map(m => [m.month, r2(m.inc), r2(m.exp), r2(m.net)]), [],
       ['Category', 'Type', 'Total', 'Transactions'], ...byCategory(rows).map(c => [c.cat, c.type === 'credit' ? 'Income' : 'Expense', r2(c.total), c.n])];
@@ -1065,7 +1065,7 @@
       const doc = new JsPDF({ unit: 'pt', format: 'a4' });
       const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight(), M = 40;
       const blue = [0, 90, 193], base = { theme: 'grid', margin: { left: M, right: M }, styles: { fontSize: 9, cellPadding: 4, lineColor: [210, 212, 220], lineWidth: 0.5 }, headStyles: { fillColor: blue, textColor: 255, fontStyle: 'bold' } };
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(18); doc.text('Cash Flow statement', M, 52);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(18); doc.text('CashFlow statement', M, 52);
       doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(80);
       doc.text(txt(exportWho()), M, 70);
       doc.text(`Period: ${fmtDate(f)} to ${fmtDate(t)}     Generated: ${fmtDate(today())}     Amounts in INR`, M, 85);
@@ -1086,7 +1086,7 @@
       const pages = doc.getNumberOfPages();
       for (let i = 1; i <= pages; i++) {
         doc.setPage(i); doc.setFontSize(8); doc.setTextColor(120);
-        doc.text('Cash Flow', M, H - 20); doc.text(`Page ${i} of ${pages}`, W - M, H - 20, { align: 'right' });
+        doc.text('CashFlow', M, H - 20); doc.text(`Page ${i} of ${pages}`, W - M, H - 20, { align: 'right' });
       }
       doc.save(exportName('pdf'));
     } catch (e) {
@@ -1109,7 +1109,7 @@
     'popup-blocked': 'The browser blocked the Google sign-in window. Allow pop-ups for this site, then try again.',
     cancelled: 'Google sign-in was closed before it finished.',
     denied: 'Google sign-in was cancelled.',
-    scope: 'Cash Flow needs permission to save its file in your Google Drive. Try again and tick the Google Drive box.',
+    scope: 'CashFlow needs permission to save its file in your Google Drive. Try again and tick the Google Drive box.',
     auth: 'Your Google sign-in expired. Tap Sync to sign in again.',
     'drive-full': 'Your Google Drive is full. Free up some space, then try again.',
   };
@@ -1173,7 +1173,7 @@
         let remote = null;
         if (f && f.modified !== meta.remoteModified) {
           try { remote = parseBackup(await CFDrive.download(s, f.id)); }
-          catch (e) { if (e && e.code) throw e; throw new Error('The Cash Flow file in your Google Drive is damaged, so it was left as it is. Delete the Drive copy in Settings, then turn sync back on to replace it.'); }
+          catch (e) { if (e && e.code) throw e; throw new Error('The CashFlow file in your Google Drive is damaged, so it was left as it is. Delete the Drive copy in Settings, then turn sync back on to replace it.'); }
         }
         // a brand-new device with nothing on it simply takes the Drive copy
         const localEmpty = !meta.base && !local.accounts.length && !local.txns.length;
@@ -1263,7 +1263,7 @@
       d = null;
       const legacy = legacyData();
       if (legacy && (legacy.txns.length || legacy.accounts.length) &&
-          confirm(`This device has Cash Flow data from before sign-in (${legacy.txns.length} transactions).\n\nMove it into ${u.email}?\n\nChoose Cancel if it belongs to someone else. It stays on this device for them.`)) {
+          confirm(`This device has CashFlow data from before sign-in (${legacy.txns.length} transactions).\n\nMove it into ${u.email}?\n\nChoose Cancel if it belongs to someone else. It stays on this device for them.`)) {
         d = legacy; adopted = true; writeJSON(KEY, null); writeJSON(OLD_KEY, null);
       }
       d = d || fresh();
@@ -1308,7 +1308,7 @@
   $('driveDeleteBtn').onclick = () => driveRun('driveDeleteBtn', 'Deleting…', async () => {
     const s = await session();
     const f = await CFDrive.find(s);
-    if (!confirm(`Delete the Cash Flow copy from your Google Drive (${user.email})?\n\n` + (f ? `Saved ${fmtWhen(f.modified)}, ${f.txns} transactions. It moves to the Drive Bin, where you can restore it for 30 days.\n\n` : '') +
+    if (!confirm(`Delete the CashFlow copy from your Google Drive (${user.email})?\n\n` + (f ? `Saved ${fmtWhen(f.modified)}, ${f.txns} transactions. It moves to the Drive Bin, where you can restore it for 30 days.\n\n` : '') +
       `Drive sync is then turned off on this device, so your data stays only here` + (user.remember ? '.' : ', and is removed when you close this tab.') + ' Other devices that are still signed in will save a new copy when they sync.')) return;
     if (f) await CFDrive.trash(s, f.id);
     setMeta({ paused: true, dirty: false, base: null, remoteModified: null, syncedAt: null });
@@ -1345,7 +1345,7 @@
   $('soGo').onclick = () => {
     const wipe = !user.remember || $('soWipe').checked;
     if (wipe && (meta.dirty || meta.paused) && !confirm('Some of your data is not in Google Drive and will be lost from this device. Sign out anyway?')) return;
-    if (wipe && user.remember && !confirm(`Remove all of ${user.email}'s Cash Flow data from this device?`)) return;
+    if (wipe && user.remember && !confirm(`Remove all of ${user.email}'s CashFlow data from this device?`)) return;
     const email = user.email;
     if (wipe) { writeArea(user, dataKey(), null); writeArea(user, metaKey(), null); const all = knownAccounts(); delete all[user.sub]; writeJSON(ACCOUNTS_KEY, all); }
     sess = null; clearTimeout(syncTimer); setUser(null);
@@ -1364,10 +1364,10 @@
     const B = { cancel: $('moveCancel'), next: $('moveNext') };
     B.cancel.hidden = false; B.next.classList.remove('danger');
     if (step === 'intro') {
-      $('moveBody').innerHTML = `<p>Move your Cash Flow data and Google Drive copy from <b>${esc(mv.old.email)}</b> to another Google account.</p>${steps(0)}${e}`;
+      $('moveBody').innerHTML = `<p>Move your CashFlow data and Google Drive copy from <b>${esc(mv.old.email)}</b> to another Google account.</p>${steps(0)}${e}`;
       B.cancel.textContent = 'Cancel'; B.next.textContent = 'Continue';
     } else if (step === 'pick') {
-      $('moveBody').innerHTML = `${steps(1)}<p>Now choose the Google account to move to. If it isn't listed, choose <b>Use another account</b>.</p><p>Cash Flow will move your data (${db.txns.length} transactions).</p>${e}`;
+      $('moveBody').innerHTML = `${steps(1)}<p>Now choose the Google account to move to. If it isn't listed, choose <b>Use another account</b>.</p><p>CashFlow will move your data (${db.txns.length} transactions).</p>${e}`;
       B.cancel.textContent = 'Cancel'; B.next.textContent = 'Choose new account';
     } else if (step === 'askDelete') {
       $('moveBody').innerHTML = `${steps(3)}<p>Done: your data is now in <b>${esc(user.email)}</b>.</p><p>The old copy is still in <b>${esc(mv.old.email)}</b>'s Google Drive (${fmtWhen(mv.oldFile.modified)}, ${mv.oldFile.txns} transactions). Delete it? It moves to that Drive's Bin for 30 days.</p>${e}`;
@@ -1403,8 +1403,8 @@
         if (u.sub === mv.old.sub) { moveBusy(false); return moveStep('pick', `That's ${u.email}, the account you're already using. Choose a different one.`); }
         const target = await CFDrive.find(s);
         const onDevice = readArea(Object.assign({ remember: mv.old.remember }, u), dataKey(u));
-        const warn = [target && `${u.email} already has Cash Flow data in its Google Drive (${fmtWhen(target.modified)}, ${target.txns} transactions).`,
-          onDevice && onDevice.version === 2 && `${u.email} already has Cash Flow data on this device (${(onDevice.txns || []).length} transactions).`].filter(Boolean);
+        const warn = [target && `${u.email} already has CashFlow data in its Google Drive (${fmtWhen(target.modified)}, ${target.txns} transactions).`,
+          onDevice && onDevice.version === 2 && `${u.email} already has CashFlow data on this device (${(onDevice.txns || []).length} transactions).`].filter(Boolean);
         if (warn.length && !confirm(`${warn.join('\n')}\n\nReplace it with the data you're moving?`)) { moveBusy(false); return moveStep('pick', 'Nothing was changed. Choose another account, or Cancel.'); }
         $('moveNext').textContent = 'Copying…';
         const source = JSON.parse(JSON.stringify(db)), text = JSON.stringify(source);
@@ -1512,14 +1512,14 @@
     const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     const btn = $('installBtn'), hint = $('installHint');
     btn.hidden = !installEvt;
-    if (standalone()) hint.textContent = 'Cash Flow is installed on this device. ✓';
-    else if (location.protocol === 'file:') hint.textContent = 'To install it as an app, open Cash Flow from a web address (for example http://localhost or a hosted link) instead of a file. See README.md.';
-    else if (installEvt) hint.textContent = 'Install Cash Flow on this device to open it like a regular app, even offline.';
+    if (standalone()) hint.textContent = 'CashFlow is installed on this device. ✓';
+    else if (location.protocol === 'file:') hint.textContent = 'To install it as an app, open CashFlow from a web address (for example http://localhost or a hosted link) instead of a file. See README.md.';
+    else if (installEvt) hint.textContent = 'Install CashFlow on this device to open it like a regular app, even offline.';
     else if (ios) hint.textContent = 'On iPhone / iPad: tap the Share button in Safari, then "Add to Home Screen".';
     else hint.textContent = 'Use your browser menu: "Install app" (Chrome / Edge), or "Add to Home screen" (Android).';
   }
   window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; renderInstall(); });
-  window.addEventListener('appinstalled', () => { installEvt = null; renderInstall(); toast('Cash Flow installed.'); });
+  window.addEventListener('appinstalled', () => { installEvt = null; renderInstall(); toast('CashFlow installed.'); });
   $('installBtn').onclick = async () => {
     if (!installEvt) return;
     installEvt.prompt();
@@ -1528,7 +1528,7 @@
   };
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
     navigator.serviceWorker.register('sw.js').then(reg => {
-      const offerUpdate = w => toast('A new version of Cash Flow is ready.', 15000, { label: 'Reload', fn: () => w.postMessage('skipWaiting') });
+      const offerUpdate = w => toast('A new version of CashFlow is ready.', 15000, { label: 'Reload', fn: () => w.postMessage('skipWaiting') });
       if (reg.waiting && navigator.serviceWorker.controller) offerUpdate(reg.waiting);
       reg.addEventListener('updatefound', () => {
         const w = reg.installing;

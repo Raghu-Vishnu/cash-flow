@@ -1,7 +1,7 @@
 {
-  "name": "Cash Flow – Income & Expense Tracker",
-  "short_name": "Cash Flow",
-  "description": "Track income and expenses from your own bank statements. Your data stays on your device.",
+  "name": "CashFlow – Smart Finance Manager",
+  "short_name": "CashFlow",
+  "description": "Smart Finance Manager: track income and expenses from your own bank statements. Your data stays in your own Google Drive.",
   "id": "./",
   "start_url": "./",
   "scope": "./",

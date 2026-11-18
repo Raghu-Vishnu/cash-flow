@@ -1,4 +1,4 @@
-# Publishes Cash Flow to GitHub Pages on every push to main.
+# Publishes CashFlow to GitHub Pages on every push to main.
 # config.js is generated here from the repository variable GOOGLE_CLIENT_ID
 # (Settings → Secrets and variables → Actions), so the value is never in the source code.
 name: Deploy to GitHub Pages
