@@ -1,5 +1,6 @@
 /* Cash Flow — app logic. All data lives in this browser's localStorage, stored separately for each signed-in Google account. */
 (function () {
+  const APP_VERSION = '3.8.0'; // keep in step with VERSION in sw.js
   const KEY = 'cashflow.v2', OLD_KEY = 'cashflow.v1', THEME_KEY = 'cashflow.theme';
   const ACCOUNTS_KEY = 'cashflow.accounts', CURRENT_KEY = 'cashflow.user', OLD_DRIVE_KEY = 'cashflow.drive';
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -206,22 +207,23 @@
       b.classList.toggle('active', on);
       if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
     });
-    $('pageTitle').textContent = { dash: 'Dashboard', tx: 'Transactions', settings: 'Settings' }[view.page];
+    $('pageTitle').textContent = { dash: 'Dashboard', tx: 'Transactions', settings: 'Settings', insights: 'Insights' }[view.page];
     document.title = view.page === 'dash' ? 'Cash Flow – Smart Finance Manager' : `${$('pageTitle').textContent} · Cash Flow`;
     $('dash').hidden = view.page !== 'dash';
     $('txPage').hidden = view.page !== 'tx';
     $('settings').hidden = view.page !== 'settings';
-    if (view.page === 'settings') $('filtersWrap').hidden = true;
-    $('uploadFab').classList.toggle('hide', view.page === 'settings');
+    $('insightsPage').hidden = view.page !== 'insights';
+    if (view.page === 'settings' || view.page === 'insights') $('filtersWrap').hidden = true;
+    $('uploadFab').classList.toggle('hide', view.page === 'settings' || view.page === 'insights');
   }
-  function goPage(p) { view.page = p; renderAll(); window.scrollTo(0, 0); }
+  function goPage(p) { view.page = p; renderAll(); window.scrollTo(0, 0); if (p !== 'insights') CFStats.page({ dash: 'dashboard', tx: 'transactions', settings: 'settings' }[p] || p); }
   document.querySelectorAll('.nav-item').forEach(b => (b.onclick = () => goPage(b.dataset.page)));
   window.addEventListener('scroll', () => document.querySelector('.appbar').classList.toggle('scrolled', window.scrollY > 4), { passive: true });
   $('profileSel').onchange = e => { view.profile = e.target.value; view.acct = 'all'; view.cat = ''; initFilters(false); renderAll(); };
 
   function renderAll() {
-    renderHeader(); renderAccount();
-    if (view.page === 'settings') renderSettings(); else renderDash();
+    renderHeader(); renderAccount(); renderStatsRow();
+    if (view.page === 'settings') renderSettings(); else if (view.page === 'insights') renderInsights(); else renderDash();
   }
 
   /* ================= dashboard ================= */
@@ -442,6 +444,7 @@
   $('txBody').addEventListener('click', e => { const b = e.target.closest('.tx-item'); if (b) openTxEdit(b.dataset.id); });
   $('teCat').onchange = () => {
     const t = editingTx; if (!t) return;
+    CFStats.once('category-changed');
     const cat = $('teCat').value, key = t.merchant.toLowerCase();
     let n = 0;
     if (t.manual || key === 'unknown' || key === 'atm cash') { t.category = cat; t.userSet = true; t.autoSalary = false; n = 1; }
@@ -456,6 +459,7 @@
   $('teDel').onclick = () => {
     const t = editingTx; if (!t) return;
     const idx = db.txns.indexOf(t);
+    CFStats.once('transaction-deleted');
     db.txns.splice(idx, 1); save(); $('txEditDlg').close(); initFilters(true); renderDash();
     toast('Transaction deleted', 6000, { label: 'Undo', fn: () => { db.txns.splice(idx, 0, t); save(); initFilters(true); renderDash(); } });
   };
@@ -606,17 +610,19 @@
     const reports = [];
     for (const file of files) {
       const rep = { file: file.name, account: acct.id, items: [] };
+      const fmtName = /\.pdf$/i.test(file.name) ? 'pdf' : /\.xlsx?$/i.test(file.name) ? 'excel' : 'csv'; // only the format is counted, never the file name
       reports.push(rep);
       let res;
       try { res = await readFile(file); }
       catch (e) {
+        CFStats.event('import-failed-' + fmtName);
         rep.items.push({ level: 'err', msg: e && e.name === 'PasswordException' ? 'Password not provided, so the file could not be opened.' : e && e.message === 'offline' ? 'PDF reader not loaded. Check your internet connection and reload.' : 'This file could not be read.' });
         continue;
       }
       const ac = checkAccount(acct, res.accountNo);
       rep.items.push({ level: ac.level, msg: ac.msg, html: true });
-      if (!ac.ok) continue;
-      if (!res.transactions.length) { rep.items.push({ level: 'err', msg: res.warnings.join(' ') || 'No transactions found.' }); continue; }
+      if (!ac.ok) { CFStats.event('import-wrong-account'); continue; }
+      if (!res.transactions.length) { CFStats.event('import-empty-' + fmtName); rep.items.push({ level: 'err', msg: res.warnings.join(' ') || 'No transactions found.' }); continue; }
 
       const stmtId = uid('s');
       const r = addTransactions(res.transactions, acct, stmtId);
@@ -625,6 +631,8 @@
 
       const chk = FT.reconcile(res.transactions, res.opening);
       rep.check = { verified: chk.verified, checked: chk.checked, gaps: chk.gaps, unparsed: (res.unparsed || []).slice(0, 25) };
+      CFStats.event('import-ok-' + fmtName);
+      if (chk.gaps && chk.gaps.length) CFStats.event('import-gaps-found');
       if (r.added || r.dup) {
         db.statements.push({ id: stmtId, accountId: acct.id, fileName: file.name, added: new Date().toISOString(), count: r.added, from: dates[0], to: dates[dates.length - 1], check: rep.check, accountMsg: ac.msg });
       }
@@ -741,6 +749,7 @@
     const t = { date: $('tdDate').value, desc: $('tdDesc').value.trim(), amount: Math.round(+$('tdAmt').value * 100) / 100, type: $('tdType').value };
     if (!t.date || !t.desc || !(t.amount > 0)) return;
     db.txns.push({ ...t, id: uid('m'), merchant: t.desc.slice(0, 40), category: $('tdCat').value, accountId: $('tdAcct').value, manual: true, source: 'manual' });
+    CFStats.event('manual-transaction-added');
     save(); $('txDlg').close(); initFilters(true); renderDash(); toast('Transaction added.');
   };
 
@@ -825,6 +834,7 @@
     const clash = last4 && db.accounts.find(a => a.last4 === last4 && a !== editingAcct);
     if (clash) { toast(`An account ending ${last4} already exists: "${clash.name}".`); return; }
     const data = { name: $('adName').value.trim(), bank: $('adBank').value.trim(), last4, profileId: $('adProfile').value };
+    if (!editingAcct) CFStats.event('bank-account-added');
     if (editingAcct) Object.assign(editingAcct, data); else db.accounts.push({ id: uid('a'), ...data });
     save(); $('acctDlg').close(); renderAll();
   };
@@ -838,6 +848,7 @@
   $('addPersonBtn').onclick = () => {
     const name = (prompt('Name of the person (for example Mom, Dad, Priya):') || '').trim();
     if (!name) return;
+    CFStats.event('person-added');
     db.profiles.push({ id: uid('p'), name: name.slice(0, 30) }); save(); renderAll();
   };
 
@@ -921,6 +932,7 @@
       if (c !== t.category) { t.category = c; t.autoSalary = false; n++; }
     }
     n += detectSalary();
+    CFStats.once('categories-reapplied');
     save(); toast(n ? `${n} transactions re-categorised.` : 'Everything is already up to date.');
   };
 
@@ -1006,6 +1018,7 @@
     }));
     // a leading = + - @ would make Excel run the cell as a formula; prefix with ' (CSV injection guard)
     const cell = c => { let s = String(c); if (typeof c !== 'number' && /^[=+\-@\t\r]/.test(s)) s = "'" + s; return `"${s.replace(/"/g, '""')}"`; };
+    CFStats.event('download-csv');
     download(exportName('csv'), '﻿' + out.map(r => r.map(cell).join(',')).join('\r\n'), 'text/csv;charset=utf-8');
   };
 
@@ -1040,6 +1053,7 @@
     XLSX.utils.book_append_sheet(wb, ws1, 'Summary');
     XLSX.utils.book_append_sheet(wb, ws2, 'Transactions');
     XLSX.writeFile(wb, exportName('xlsx'));
+    CFStats.event('download-excel');
   };
 
   let pdfLib = null;
@@ -1089,6 +1103,7 @@
         doc.text('Cash Flow', M, H - 20); doc.text(`Page ${i} of ${pages}`, W - M, H - 20, { align: 'right' });
       }
       doc.save(exportName('pdf'));
+      CFStats.event('download-pdf');
     } catch (e) {
       toast(navigator.onLine === false ? 'The PDF maker is not on this device yet. Connect to the internet once, then try again.' : 'Could not create the PDF. Try reloading the page.', 7000);
     } finally { btn.disabled = false; btn.innerHTML = label; }
@@ -1097,6 +1112,7 @@
   $('clearBtn').onclick = () => {
     const drive = user && CFDrive.configured() && !meta.paused;
     if (!confirm('Delete ALL people, accounts, transactions and category settings?' + (drive ? '\n\nThis also deletes them from your Google Drive copy and your other devices when they sync.' : ''))) return;
+    CFStats.event('all-data-deleted');
     db = fresh(); recompile(); save(); view.profile = db.profiles[0].id; view.acct = 'all'; view.cat = ''; initFilters(false); renderAll();
   };
 
@@ -1128,6 +1144,7 @@
     else { writeS(SESSION_USER, null); writeJSON(CURRENT_KEY, null); }
     user = u;
     meta = (u && readArea(u, metaKey(u))) || {};
+    checkAdmin();
   }
   /** A Drive session for the signed-in account. Opens Google's popup only when needed, so call it straight from a click. */
   async function session() {
@@ -1192,8 +1209,11 @@
         if (!editedDuring) break;
       }
       nudged = false;
+      CFStats.once('sync-ok');
+      if (changedHere) CFStats.once('sync-brought-changes');
       return true;
     } catch (e) {
+      CFStats.once('sync-error-' + (e && e.code ? e.code : 'other'));
       syncErr = errText(e);
       if (manual) toast(syncErr, 8000);
       return false;
@@ -1240,6 +1260,7 @@
     if (!g) return;
     const loaded = !!(window.google && google.accounts && google.accounts.oauth2), offline = navigator.onLine === false;
     $('gateSignIn').disabled = !loaded || busy;
+    $('gateStats').hidden = !CFStats.enabled();
     $('gateMsg').textContent = msg || (loaded ? '' : offline ? "You're offline. Connect to the internet to sign in." : 'Loading Google sign-in…');
     $('gateMsg').classList.toggle('err', !!isErr || (!loaded && offline));
   }
@@ -1276,6 +1297,8 @@
     Object.assign(view, { page: 'dash', profile: db.profiles[0].id, acct: 'all', cat: '' });
     initFilters(false); renderGate(); renderAll();
     toast(`Signed in as ${u.email}.`);
+    CFStats.event(rec.remember ? 'signin-remembered' : 'signin-shared-computer');
+    if (adopted) CFStats.event('signin-moved-old-data');
     if (CFDrive.valid(sess) && sess.drive) syncNow(false);
     else { toast('To load your data from Google Drive, tap Sync and tick the Google Drive box.', 12000, { label: 'Sync', fn: () => syncNow(true) }); }
   }
@@ -1312,12 +1335,14 @@
       `Drive sync is then turned off on this device, so your data stays only here` + (user.remember ? '.' : ', and is removed when you close this tab.') + ' Other devices that are still signed in will save a new copy when they sync.')) return;
     if (f) await CFDrive.trash(s, f.id);
     setMeta({ paused: true, dirty: false, base: null, remoteModified: null, syncedAt: null });
+    CFStats.event('drive-copy-deleted');
     toast('Drive copy deleted. It is in your Google Drive Bin for 30 days.');
   });
   $('driveOnBtn').onclick = () => driveRun('driveOnBtn', 'Turning on…', async () => {
     await session();
     setMeta({ paused: false, dirty: true, editedAt: Date.now() });
     if (!(await syncNow(false))) throw new Error(syncErr || 'Could not sync.');
+    CFStats.event('drive-sync-on');
     toast('Drive sync is on again.');
   });
   $('rememberChk').onchange = e => {
@@ -1330,6 +1355,7 @@
     setUser(Object.assign({}, old, { remember: on }));
     writeArea(user, dataKey(), db); setMeta(keepMeta);
     renderAccount();
+    CFStats.event(on ? 'remember-on' : 'remember-off');
     toast(on ? 'This device keeps a copy now: it opens quickly and works offline.' : 'This device no longer keeps your data after the tab closes.');
   };
 
@@ -1351,6 +1377,7 @@
     sess = null; clearTimeout(syncTimer); setUser(null);
     db = fresh(); recompile();
     $('signOutDlg').close(); renderGate(); renderAccount();
+    CFStats.event(wipe ? 'signout-removed-data' : 'signout');
     toast(wipe ? `Signed out. ${email}'s data was removed from this device.` : `Signed out of ${email}.`);
   };
 
@@ -1421,6 +1448,7 @@
         Object.assign(view, { profile: db.profiles[0].id, acct: 'all', cat: '' });
         initFilters(false); renderAll();
         moveBusy(false); moveStep(mv.oldFile ? 'askDelete' : 'done');
+        CFStats.event('account-changed');
         toast(`Moved to ${u.email}.`);
       } catch (e) { moveBusy(false); moveStep('pick', errText(e)); }
       return;
@@ -1435,6 +1463,7 @@
         }
         await CFDrive.trash(mv.oldSess, mv.oldFile.id);
         mv.deleted = true; moveBusy(false); moveStep('done');
+        CFStats.event('old-copy-deleted');
       } catch (e) { moveBusy(false); moveStep('askDelete', errText(e)); }
     }
   };
@@ -1449,6 +1478,169 @@
     if (meta.dirty) scheduleSync();
     else { setTimeout(() => toast('Tap Sync to get the latest from your Google Drive.', 8000, { label: 'Sync', fn: () => syncNow(true) }), 600); }
   }
+
+  /* ================= anonymous usage counts: Settings switch ================= */
+  function renderStatsRow() {
+    $('statsRow').hidden = !CFStats.configured();
+    $('statsChk').checked = CFStats.enabled();
+  }
+  $('statsChk').onchange = e => {
+    CFStats.setEnabled(e.target.checked);
+    toast(e.target.checked ? 'Thanks! Anonymous usage counts are on.' : 'Anonymous usage counts are off on this device.');
+  };
+
+  /* ================= admin: product insights (anonymous counts from GoatCounter) =================
+     Shown only to admin accounts: config.js holds SHA-256 fingerprints of the admin emails (never the emails).
+     Reading the stats needs a GoatCounter API key that the admin pastes once; it's kept only in this browser.
+     There is no personal data to show: the app only ever sends fixed event names (see analytics.js). */
+  const ADMIN_HASHES = (((window.CF_CONFIG || {}).adminHashes) || []).map(String);
+  const GC_KEY = 'cashflow.gcKey';
+  let isAdmin = false, inChart = null, inLoading = false, inData = null;
+  async function checkAdmin() {
+    let ok = false;
+    try {
+      if (user && user.email && ADMIN_HASHES.length && window.crypto && crypto.subtle) {
+        const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(user.email.trim().toLowerCase()));
+        ok = ADMIN_HASHES.includes([...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join(''));
+      }
+    } catch (e) { ok = false; }
+    isAdmin = ok;
+    document.querySelectorAll('.nav-admin').forEach(b => (b.hidden = !ok));
+    if (!ok) { inData = null; if (view.page === 'insights') goPage('dash'); }
+  }
+  const gcKey = () => { try { return localStorage.getItem(GC_KEY) || ''; } catch (e) { return ''; } };
+  async function gcGet(path, params) {
+    let r;
+    try {
+      r = await fetch(`https://${CFStats.code}.goatcounter.com/api/v0/${path}?${new URLSearchParams(params)}`,
+        { headers: { Authorization: 'Bearer ' + gcKey(), 'Content-Type': 'application/json' }, credentials: 'omit', referrerPolicy: 'no-referrer', cache: 'no-store' });
+    } catch (e) { throw new Error("Couldn't reach GoatCounter. Check your internet connection."); }
+    if (r.status === 401) throw new Error('GoatCounter rejected the API key. Check it, or create a new one and paste it again.');
+    if (r.status === 403) throw new Error('This API key may not read statistics. Create a key with the "Read statistics" permission.');
+    if (r.status === 429) throw new Error('GoatCounter is busy (too many requests). Try again in a few seconds.');
+    if (!r.ok) throw new Error(`GoatCounter error ${r.status}.`);
+    return r.json();
+  }
+  const isoHour = t => { const d = new Date(t); d.setUTCMinutes(0, 0, 0); return d.toISOString().replace(/\.\d{3}Z$/, 'Z'); };
+  function inStatus(msg, isErr) { const el = $('inStatus'); el.hidden = !msg; el.textContent = msg || ''; el.classList.toggle('move-err', !!isErr); }
+  function renderInsights() {
+    if (!isAdmin) return;
+    if (!CFStats.configured()) {
+      $('inKeyBox').hidden = $('inBody').hidden = true;
+      return inStatus('Usage counting is not set up yet: add GOATCOUNTER_CODE to .env and to the GitHub repository variables (see README).', true);
+    }
+    $('inKeyWhere').textContent = `${CFStats.code}.goatcounter.com`;
+    const hasKey = !!gcKey();
+    $('inKeyBox').hidden = hasKey;
+    if (!hasKey) { $('inBody').hidden = true; return inStatus(''); }
+    if (inData && inData.days === +$('inRange').value) drawInsights(inData); else loadInsights();
+  }
+  async function loadInsights() {
+    if (inLoading || !gcKey()) return;
+    inLoading = true; $('inRefresh').disabled = true;
+    const days = +$('inRange').value;
+    inStatus('Loading insights…');
+    try {
+      const range = { start: isoHour(Date.now() - days * 864e5), end: isoHour(Date.now() + 3600e3) };
+      const pause = () => new Promise(r => setTimeout(r, 300)); // GoatCounter allows 4 requests a second
+      const hits = [];
+      let page = await gcGet('stats/hits', Object.assign({ limit: 100, group: 'day' }, range));
+      hits.push(...(page.hits || []));
+      for (let n = 0; page.more && n < 4; n++) {
+        await pause();
+        page = await gcGet('stats/hits', Object.assign({ limit: 100, group: 'day', exclude_paths: hits.map(h => h.path_id).join(',') }, range));
+        hits.push(...(page.hits || []));
+      }
+      await pause(); const total = await gcGet('stats/total', range);
+      await pause(); const systems = await gcGet('stats/systems', Object.assign({ limit: 8 }, range));
+      await pause(); const browsers = await gcGet('stats/browsers', Object.assign({ limit: 8 }, range));
+      inData = { days, hits, total, systems: systems.stats || [], browsers: browsers.stats || [], at: new Date() };
+      drawInsights(inData);
+    } catch (e) {
+      $('inBody').hidden = true; inStatus(e.message || 'Could not load insights.', true);
+    } finally { inLoading = false; $('inRefresh').disabled = false; }
+  }
+  const LABELS = {
+    'app-open': 'App opened', 'first-open-device': 'New device (first open)', 'app-installed': 'App installed',
+    'open-installed-app': 'Opened as installed app', 'open-in-browser': 'Opened in a browser',
+    'signin-remembered': 'Sign-in: remembered device', 'signin-shared-computer': 'Sign-in: shared computer', 'signin-moved-old-data': 'Sign-in moved old data',
+    'import-ok-pdf': 'PDF imported', 'import-ok-csv': 'CSV imported', 'import-ok-excel': 'Excel imported',
+    'import-failed-pdf': 'PDF could not be read', 'import-failed-csv': 'CSV could not be read', 'import-failed-excel': 'Excel could not be read',
+    'import-empty-pdf': 'PDF had no transactions', 'import-empty-csv': 'CSV had no transactions', 'import-empty-excel': 'Excel had no transactions',
+    'import-wrong-account': 'Wrong account blocked', 'import-gaps-found': 'Balance gaps found',
+    'download-csv': 'CSV', 'download-excel': 'Excel', 'download-pdf': 'PDF statement',
+    'person-added': 'Person added', 'bank-account-added': 'Bank account added', 'manual-transaction-added': 'Transaction added by hand',
+    'transaction-deleted': 'Deleted a transaction *', 'category-changed': 'Changed a category *', 'categories-reapplied': 'Re-applied categories *',
+    'remember-on': 'Remember device turned on', 'remember-off': 'Remember device turned off', 'signout': 'Signed out', 'signout-removed-data': 'Signed out and removed data',
+    'account-changed': 'Changed Google account', 'old-copy-deleted': 'Deleted old account copy', 'drive-copy-deleted': 'Deleted Drive copy',
+    'drive-sync-on': 'Turned Drive sync back on', 'all-data-deleted': 'Deleted all data',
+    'sync-ok': 'Synced successfully *', 'sync-brought-changes': 'Sync brought changes from another device *',
+    'error-js': 'App error *',
+  };
+  const label = p => LABELS[p] || (p.startsWith('/') ? p.slice(1).replace(/^./, c => c.toUpperCase())
+    : p.startsWith('sync-error-') ? `Sync failed: ${p.slice(11).replace(/-/g, ' ')} *` : p.startsWith('version-') ? 'Version ' + p.slice(8) : p.replace(/-/g, ' '));
+  function countList(el, rows) {
+    rows = rows.filter(r => r[1] > 0).sort((a, b) => b[1] - a[1]);
+    if (!rows.length) { el.innerHTML = '<div class="none">Nothing yet in this period.</div>'; return; }
+    const max = rows[0][1], color = getComputedStyle(document.documentElement).getPropertyValue('--income').trim() || '#2a78d6';
+    el.innerHTML = rows.map(([name, v]) => `<div class="bar-row" title="${esc(name)}: ${v}">
+      <span class="bar-name">${esc(name)}</span>
+      <span class="bar-track"><span class="bar-fill" style="width:${Math.max(2, (v / max) * 100)}%;background:${color}"></span></span>
+      <span class="bar-val">${v.toLocaleString('en-IN')}</span></div>`).join('');
+  }
+  function drawInsights(d) {
+    const by = new Map();
+    for (const h of d.hits) by.set(h.path, (by.get(h.path) || 0) + (Number(h.count) || 0));
+    const n = p => by.get(p) || 0;
+    const rows = (pred) => [...by].filter(([p]) => pred(p)).map(([p, v]) => [label(p), v]);
+    const kpi = (ic, cls, name, val, sub) => `<div class="kpi"><span class="k-ic ${cls}"><span class="ms">${ic}</span></span><span class="k-label">${name}</span><span class="k-val">${val.toLocaleString('en-IN')}</span><span class="k-sub">${sub}</span></div>`;
+    const visits = Number(d.total.total) || 0;
+    $('inKpis').innerHTML = kpi('group', 'inc', 'Visits', visits, 'Each browser counted once per 8 hours')
+      + kpi('space_dashboard', 'net', 'App opens', n('app-open'), `${n('open-installed-app')} as installed app`)
+      + kpi('install_mobile', 'rate', 'New devices', n('first-open-device'), `${n('app-installed')} installs`)
+      + kpi('account_circle', 'exp', 'Sign-ins', n('signin-remembered') + n('signin-shared-computer'), `${n('signin-shared-computer')} on shared computers`);
+    // app opens per day
+    const opens = d.hits.find(h => h.path === 'app-open'), perDay = new Map();
+    for (const s of (opens && opens.stats) || []) {
+      const v = s.daily != null ? Number(s.daily) : (s.hourly || []).reduce((a, b) => a + (Number(b) || 0), 0);
+      if (s.day) perDay.set(String(s.day).slice(0, 10), (perDay.get(String(s.day).slice(0, 10)) || 0) + v);
+    }
+    const labels = [], values = [];
+    for (let i = d.days - 1; i >= 0; i--) { const day = new Date(Date.now() - i * 864e5).toISOString().slice(0, 10); labels.push(fmtDate(day).replace(/ \d{4}$/, '')); values.push(perDay.get(day) || 0); }
+    if (inChart) { inChart.destroy(); inChart = null; }
+    if (window.Chart) {
+      const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+      inChart = new Chart($('inChart'), { type: 'bar', data: { labels, datasets: [{ label: 'App opens', data: values, backgroundColor: css('--income') || '#2a78d6', borderRadius: 4, maxBarThickness: 28 }] },
+        options: { responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { display: false } },
+          scales: { x: { grid: { display: false }, ticks: { color: css('--text-2'), maxRotation: 0, autoSkip: true, maxTicksLimit: 10 } },
+            y: { beginAtZero: true, ticks: { precision: 0, color: css('--text-2') }, grid: { color: css('--grid') } } } } });
+    }
+    countList($('inDevices'), ['open-installed-app', 'open-in-browser', 'signin-remembered', 'signin-shared-computer', 'app-installed', 'signin-moved-old-data'].map(p => [label(p), n(p)]));
+    countList($('inScreens'), rows(p => p.startsWith('/')));
+    countList($('inImports'), rows(p => p.startsWith('import-')));
+    countList($('inDownloads'), rows(p => p.startsWith('download-')));
+    countList($('inAccount'), rows(p => /^(person-added|bank-account-added|manual-transaction-added|transaction-deleted|category-changed|categories-reapplied|remember-|signout|account-changed|old-copy-deleted|drive-|all-data-deleted)/.test(p)));
+    countList($('inSync'), rows(p => p.startsWith('sync-')));
+    countList($('inErrors'), rows(p => p === 'error-js' || p.startsWith('sync-error-') || p.startsWith('import-failed-') || p.startsWith('import-empty-') || p === 'import-gaps-found'));
+    countList($('inVersions'), rows(p => p.startsWith('version-')));
+    countList($('inSystems'), d.systems.map(s => [s.name || 'Unknown', Number(s.count) || 0]));
+    countList($('inBrowsers'), d.browsers.map(s => [s.name || 'Unknown', Number(s.count) || 0]));
+    $('inBody').hidden = false;
+    inStatus(`Last ${d.days} days · updated ${d.at.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}. Items marked * are counted at most once per app session.`);
+  }
+  $('inRange').onchange = loadInsights;
+  $('inRefresh').onclick = loadInsights;
+  $('inKeySave').onclick = () => {
+    const k = $('inKey').value.trim();
+    if (k.length < 20 || /\s/.test(k)) return toast('That doesn\'t look like a GoatCounter API key.');
+    try { localStorage.setItem(GC_KEY, k); } catch (e) { return toast('This browser could not save the key.'); }
+    $('inKey').value = ''; inData = null; renderInsights();
+  };
+  $('inKeyForget').onclick = () => {
+    if (!confirm('Remove the GoatCounter API key from this device? You can paste it again any time.')) return;
+    try { localStorage.removeItem(GC_KEY); } catch (e) { /* ignore */ }
+    inData = null; if (inChart) { inChart.destroy(); inChart = null; } renderInsights();
+  };
 
   /* ================= sample data ================= */
   function sampleData() {
@@ -1519,7 +1711,7 @@
     else hint.textContent = 'Use your browser menu: "Install app" (Chrome / Edge), or "Add to Home screen" (Android).';
   }
   window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; renderInstall(); });
-  window.addEventListener('appinstalled', () => { installEvt = null; renderInstall(); toast('Cash Flow installed.'); });
+  window.addEventListener('appinstalled', () => { installEvt = null; renderInstall(); toast('Cash Flow installed.'); CFStats.event('app-installed'); });
   $('installBtn').onclick = async () => {
     if (!installEvt) return;
     installEvt.prompt();
@@ -1547,5 +1739,14 @@
   if (location.hash === '#demo' && !db.txns.length) loadSample();
   applyTheme(getTheme());
   renderAll();
+  // anonymous usage counts for this app open (fixed names only; see analytics.js)
+  CFStats.event('app-open');
+  CFStats.event(standalone() ? 'open-installed-app' : 'open-in-browser');
+  CFStats.event('version-' + APP_VERSION);
+  CFStats.page(gated() ? 'signin' : 'dashboard');
+  try { if (!localStorage.getItem('cashflow.seen')) { localStorage.setItem('cashflow.seen', '1'); CFStats.event('first-open-device'); } } catch (e) { /* ignore */ }
+  window.addEventListener('error', () => CFStats.once('error-js'));
+  window.addEventListener('unhandledrejection', () => CFStats.once('error-js'));
+  checkAdmin();
   save({ noSync: true }); // persists a migrated v1 store in the new format (skipped while nobody is signed in)
 })();

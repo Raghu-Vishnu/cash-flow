@@ -68,9 +68,29 @@ With no `GOOGLE_CLIENT_ID` set, Google Drive backup is simply turned off.
 Restoring works on any device with the same Google account. Drive keeps earlier versions of the backup file for
 about 30 days: right-click the file in Drive, then choose **Manage versions**.
 
+## Anonymous usage counts & admin Insights (optional)
+Cash Flow can count actions **anonymously** with [GoatCounter](https://www.goatcounter.com) (free, no cookies, no IP
+addresses stored). `analytics.js` sends **fixed event names only** (for example `download-pdf`, `import-ok-csv`,
+`sync-error-offline`), never names, emails, amounts, transactions, account details or file names. Users can turn it off in
+Settings. It also starts off when the browser sends Do Not Track or Global Privacy Control, and is never sent from localhost.
+
+1. Sign up at goatcounter.com and pick a site code, e.g. `cashflow` (gives `cashflow.goatcounter.com`).
+2. In GoatCounter **Settings**: under data collection, untick what you don't need (for example *Region*). Under
+   **Tracking → Ignore IPs**, you can add your own IP if you don't want to count yourself.
+3. Set `GOATCOUNTER_CODE` in `.env` and as a GitHub **repository variable**.
+4. Set `ADMIN_EMAILS` (your Gmail; comma-separated for several) in `.env` and as a GitHub **repository secret**.
+   Only SHA-256 fingerprints of these go into `config.js`, so the published site never shows the addresses.
+5. Push. Sign in with an admin Gmail: an **Insights** tab appears. Create a GoatCounter API key with only
+   *Read statistics* (username → API) and paste it there once. It's stored only in that browser.
+
+Insights shows visits, app opens per day, new devices, sign-ins, installed app vs browser, screens, imports, downloads,
+account and Drive actions, sync health, problems, app versions, operating systems and browsers. When you change
+`APP_VERSION` in `app.js`, keep it in step with `VERSION` in `sw.js`.
+
 ## For developers
 - `parser.js`: statement reading (CSV/Excel/PDF with layout detection), verification, categorisation, anonymiser
 - `config.js`: generated settings (see above), never edited by hand · `scripts/make-config.py` builds it
+- `analytics.js`: anonymous usage counts (GoatCounter) · admin Insights page lives in `app.js`
 - `gdrive.js`: Google sign-in + Drive REST API (no server) · `sync.js`: 3-way merge of device and Drive data
 - `vendor/jspdf*.js`: jsPDF 2.5.1 + AutoTable 3.8.2 (MIT) for PDF statements, loaded only when needed
 - `app.js`: UI logic · `styles.css`: Material 3 theme · `sw.js`: offline cache · `manifest.webmanifest`: app install info

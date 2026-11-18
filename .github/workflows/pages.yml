@@ -28,6 +28,8 @@ jobs:
       - name: Generate config.js from repository settings
         env:
           GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID || secrets.GOOGLE_CLIENT_ID }}
+          GOATCOUNTER_CODE: ${{ vars.GOATCOUNTER_CODE }}
+          ADMIN_EMAILS: ${{ secrets.ADMIN_EMAILS || vars.ADMIN_EMAILS }}
         run: python3 scripts/make-config.py
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

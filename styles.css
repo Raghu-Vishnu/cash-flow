@@ -523,3 +523,10 @@ body.gated .shell, body.gated .rail, body.gated .navbar, body.gated .fab, body.g
 /* phones: light/dark lives in Settings → Appearance, so the header keeps room for the title, sync and account */
 @media (max-width: 599px) { #themeBtn { display: none; } }
 .gate-sub { color: var(--primary); font: 500 13px/16px Roboto, sans-serif; letter-spacing: .12em; text-transform: uppercase; margin-top: -8px; }
+
+/* ---------- admin insights ---------- */
+.in-tools { display: flex; align-items: center; gap: 4px; }
+.in-status { margin: 4px 0 0; }
+#inBody { display: grid; gap: 16px; }
+#inBody[hidden] { display: none; }
+@media (max-width: 599px) { #insightsPage .kpis { grid-template-columns: 1fr 1fr; } }

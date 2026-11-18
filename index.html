@@ -21,7 +21,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0..1,0&icon_names=account_balance,account_circle,add,arrow_downward,arrow_drop_down,arrow_upward,atm,backup,calendar_month,category,check_circle,close,cloud,cloud_done,cloud_off,cloud_sync,cloud_upload,credit_card,dark_mode,date_range,delete,description,directions_car,download,edit,error,event,group,health_and_safety,home,info,install_mobile,label,light_mode,local_grocery_store,lock,logout,medical_services,movie,palette,payments,percent,person,picture_as_pdf,qr_code_2,receipt,receipt_long,replay,request_quote,restaurant,savings,school,search,settings,shopping_bag,space_dashboard,swap_horiz,sync_alt,sync_problem,table_view,trending_up,troubleshoot,upload_file,warning&display=block">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0..1,0&icon_names=account_balance,account_circle,add,arrow_downward,arrow_drop_down,arrow_upward,atm,backup,calendar_month,category,check_circle,close,cloud,cloud_done,cloud_off,cloud_sync,cloud_upload,credit_card,dark_mode,date_range,delete,description,directions_car,download,edit,error,event,group,health_and_safety,home,info,insights,install_mobile,key,label,light_mode,local_grocery_store,lock,logout,medical_services,movie,palette,payments,percent,person,picture_as_pdf,qr_code_2,receipt,receipt_long,refresh,replay,request_quote,restaurant,savings,school,search,settings,shopping_bag,space_dashboard,swap_horiz,sync_alt,sync_problem,table_view,trending_up,troubleshoot,upload_file,warning&display=block">
 <link rel="stylesheet" href="styles.css">
 <script src="vendor/chart.umd.min.js"></script>
 <script src="vendor/xlsx.full.min.js"></script>
@@ -44,6 +44,7 @@
       <li><span class="ms" aria-hidden="true">group</span><span>Everyone signs in with their own Google account and sees only their own data.</span></li>
       <li><span class="ms" aria-hidden="true">cloud_sync</span><span>Use it on your phone and computer: changes stay in step through your Drive.</span></li>
     </ul>
+    <p class="gate-note" id="gateStats" hidden>Anonymous usage counts (no personal or financial data) help improve the app. You can turn them off in Settings.</p>
     <a class="gate-link" href="privacy.html">Privacy policy</a>
   </div>
 </div>
@@ -59,6 +60,7 @@
     <button class="nav-item" data-page="dash"><span class="nav-ic"><span class="ms">space_dashboard</span></span><span class="nav-label">Dashboard</span></button>
     <button class="nav-item" data-page="tx"><span class="nav-ic"><span class="ms">receipt_long</span></span><span class="nav-label">Transactions</span></button>
     <button class="nav-item" data-page="settings"><span class="nav-ic"><span class="ms">settings</span></span><span class="nav-label">Settings</span></button>
+    <button class="nav-item nav-admin" data-page="insights" hidden><span class="nav-ic"><span class="ms">insights</span></span><span class="nav-label">Insights</span></button>
   </div>
 </nav>
 
@@ -260,8 +262,51 @@
           <button class="btn tonal" id="downloadBtn"><span class="ms">download</span>Download transactions</button>
           <button class="btn danger" id="clearBtn">Delete all data</button>
         </div>
+        <label class="switch-row stats-row" id="statsRow" hidden>
+          <span class="switch-text"><b>Share anonymous usage counts</b><span>Counts like "a PDF was downloaded" help improve Cash Flow. Never your name, email, amounts, transactions or account details. <a href="privacy.html#usage">What's counted</a></span></span>
+          <input type="checkbox" role="switch" id="statsChk">
+        </label>
       </div>
       <p class="footnote">Cash Flow · your data stays in your own Google Drive and on the devices you choose · <a href="privacy.html">Privacy policy</a></p>
+    </section>
+
+    <!-- Admin: product insights (anonymous counts from GoatCounter). Only shown to admin accounts. -->
+    <section id="insightsPage" hidden aria-labelledby="pageTitle">
+      <div class="card">
+        <div class="card-head"><h2><span class="ms">insights</span>Product insights</h2>
+          <div class="in-tools">
+            <label class="chip"><span class="ms">date_range</span><select id="inRange" aria-label="Period"><option value="7">Last 7 days</option><option value="30" selected>Last 30 days</option><option value="90">Last 90 days</option></select><span class="ms chev">arrow_drop_down</span></label>
+            <button class="icon-btn" id="inRefresh" aria-label="Refresh" title="Refresh"><span class="ms">refresh</span></button>
+          </div>
+        </div>
+        <p class="hint">Anonymous usage counts from GoatCounter. The app never collects names, emails, amounts, transactions, merchants or account details, so none of that can appear here. Counts only include people who haven't turned usage counts off.</p>
+        <div id="inKeyBox" hidden>
+          <label class="field">GoatCounter API key <input type="password" id="inKey" autocomplete="off" spellcheck="false" placeholder="Paste your read-only API key"></label>
+          <p class="hint">Create it at <b id="inKeyWhere">your GoatCounter site</b> → your username (top right) → <b>API</b> → <b>New API key</b>, allowing only <b>Read statistics</b>. It's saved only on this device, never in the code or in Drive.</p>
+          <div class="row-gap left"><button class="btn primary" id="inKeySave"><span class="ms">key</span>Save key on this device</button></div>
+        </div>
+        <p class="sync-line in-status" id="inStatus" hidden></p>
+      </div>
+      <div id="inBody" hidden>
+        <div class="kpis" id="inKpis"></div>
+        <div class="card">
+          <div class="card-head"><h2>App opens per day</h2></div>
+          <div class="chart-wrap"><canvas id="inChart" role="img" aria-label="App opens per day"></canvas></div>
+        </div>
+        <div class="grid2">
+          <div class="card"><div class="card-head"><h2>How people use it</h2></div><div id="inDevices" class="bars"></div></div>
+          <div class="card"><div class="card-head"><h2>Screens viewed</h2></div><div id="inScreens" class="bars"></div></div>
+          <div class="card"><div class="card-head"><h2>Statement imports</h2></div><div id="inImports" class="bars"></div></div>
+          <div class="card"><div class="card-head"><h2>Downloads</h2></div><div id="inDownloads" class="bars"></div></div>
+          <div class="card"><div class="card-head"><h2>Account &amp; Drive actions</h2></div><div id="inAccount" class="bars"></div></div>
+          <div class="card"><div class="card-head"><h2>Sync health</h2></div><div id="inSync" class="bars"></div></div>
+          <div class="card"><div class="card-head"><h2>Problems</h2></div><div id="inErrors" class="bars"></div></div>
+          <div class="card"><div class="card-head"><h2>App versions</h2></div><div id="inVersions" class="bars"></div></div>
+          <div class="card"><div class="card-head"><h2>Operating systems</h2></div><div id="inSystems" class="bars"></div></div>
+          <div class="card"><div class="card-head"><h2>Browsers</h2></div><div id="inBrowsers" class="bars"></div></div>
+        </div>
+        <div class="row-gap left in-foot"><button class="btn text" id="inKeyForget"><span class="ms">key</span>Forget API key on this device</button></div>
+      </div>
     </section>
   </main>
 </div>
@@ -271,6 +316,7 @@
   <button class="nav-item" data-page="dash"><span class="nav-ic"><span class="ms">space_dashboard</span></span><span class="nav-label">Dashboard</span></button>
   <button class="nav-item" data-page="tx"><span class="nav-ic"><span class="ms">receipt_long</span></span><span class="nav-label">Transactions</span></button>
   <button class="nav-item" data-page="settings"><span class="nav-ic"><span class="ms">settings</span></span><span class="nav-label">Settings</span></button>
+    <button class="nav-item nav-admin" data-page="insights" hidden><span class="nav-ic"><span class="ms">insights</span></span><span class="nav-label">Insights</span></button>
 </nav>
 <button class="fab" id="uploadFab" aria-label="Upload statement"><span class="ms">upload_file</span></button>
 
@@ -427,6 +473,7 @@
 
 <script src="parser.js"></script>
 <script src="config.js"></script>
+<script src="analytics.js"></script>
 <script src="gdrive.js"></script>
 <script src="sync.js"></script>
 <script src="app.js"></script>
