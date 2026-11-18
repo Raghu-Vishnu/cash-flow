@@ -1,4 +1,4 @@
-# CashFlow – Smart Finance Manager
+# Cash Flow – Smart Finance Manager
 
 An installable app (PWA) for Android, iPhone/iPad, macOS and Windows. Your statements are processed on your
 device. Nothing is uploaded, unless you choose to back up to your own Google Drive. The design follows Google's Material Design 3, with Apple's iOS guidelines for phones.
@@ -7,14 +7,14 @@ device. Nothing is uploaded, unless you choose to back up to your own Google Dri
 | How | Works offline | Can install as an app |
 |---|---|---|
 | Double-click `index.html` | ✓ (after first load of fonts) | ✗ |
-| **Mac:** double-click `Start CashFlow.command` · **Windows:** double-click `Start CashFlow (Windows).bat` (needs Python) | ✓ | ✓ (Chrome / Edge → install icon in the address bar) |
+| **Mac:** double-click `Start Cash Flow.command` · **Windows:** double-click `Start Cash Flow (Windows).bat` (needs Python) | ✓ | ✓ (Chrome / Edge → install icon in the address bar) |
 | Host the folder on any HTTPS site (e.g. GitHub Pages, Netlify) and open the link on your phone | ✓ | ✓ (Android: "Install app"; iPhone: Share → Add to Home Screen) |
 
 > The copy kept on a device is per browser *and* per address (file, localhost and a hosted link are separate). Sign in
 > with the same Google account and **Sync** to bring the same data to any of them.
 
 ## Using it
-0. **Sign in with Google** the first time you open CashFlow on a device. Your data is saved in your own Google Drive and kept in step
+0. **Sign in with Google** the first time you open Cash Flow on a device. Your data is saved in your own Google Drive and kept in step
    across devices. Tick **Remember this device** on your own phone or laptop to keep a copy there (opens instantly, works offline).
 1. **Settings → People & accounts:** add people (you, family) and their bank accounts.
 2. **Upload** (the button at the top of the left rail on desktop, the round button at the bottom-right on phones): pick the account and drop CSV/Excel/PDF statements.
@@ -27,7 +27,7 @@ device. Nothing is uploaded, unless you choose to back up to your own Google Dri
 7. **Settings → Statement diagnostics:** creates an anonymised report if a statement isn't read correctly.
 
 ## Google sign-in & Drive (one-time setup)
-Sign-in and backup run in the browser. There is no CashFlow server or account database. Scopes: `openid email profile`
+Sign-in and backup run in the browser. There is no Cash Flow server or account database. Scopes: `openid email profile`
 (who is signed in) and `drive.file` (only the files the app created, nothing else in the Drive).
 Without a client ID, sign-in is skipped and the app works as a single local store.
 
@@ -38,9 +38,9 @@ devices are combined: both sides' additions are kept, deletions stick, and for a
 The sign-in token is kept in memory for about an hour and is never saved.
 
 Google needs to know which website is allowed to ask for sign-in. Do this once:
-1. Go to **console.cloud.google.com** and create a project (for example "CashFlow").
+1. Go to **console.cloud.google.com** and create a project (for example "Cash Flow").
 2. **APIs & Services → Library**: search for **Google Drive API** and click **Enable**.
-3. **Google Auth Platform → Branding** (older consoles call it "OAuth consent screen"): fill in the app name "CashFlow" and your support email. Audience: **External**.
+3. **Google Auth Platform → Branding** (older consoles call it "OAuth consent screen"): fill in the app name "Cash Flow" and your support email. Audience: **External**.
 4. **Data access → Add or remove scopes**: add `openid`, `.../auth/userinfo.email`, `.../auth/userinfo.profile` and `.../auth/drive.file`, then save.
 5. **Audience**: click **Publish app**. `drive.file` is a non-sensitive scope, so Google doesn't need to review it.
    If you leave it in "Testing", only the Google accounts you add as test users can sign in.

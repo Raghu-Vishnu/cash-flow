@@ -1,4 +1,4 @@
-/* CashFlow: merging this device's data with the Google Drive copy.
+/* Cash Flow: merging this device's data with the Google Drive copy.
    3-way merge: "base" is a fingerprint of the last version both sides agreed on (the last successful sync).
    - an item changed on one side only → that side's version
    - changed on both sides → the side with the newer edit (localNewer)

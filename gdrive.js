@@ -1,5 +1,5 @@
-/* CashFlow: Google sign-in and backup to the user's OWN Google Drive.
-   - Runs entirely in the browser. Data goes straight between this device and Google; CashFlow has no server.
+/* Cash Flow: Google sign-in and backup to the user's OWN Google Drive.
+   - Runs entirely in the browser. Data goes straight between this device and Google; Cash Flow has no server.
    - Scopes: "openid email profile" (who is signed in) and "drive.file" (ONLY the files this app created,
      never the rest of the user's Drive).
    - Access tokens live in memory only (about 1 hour) and are never written to storage.
@@ -9,7 +9,7 @@ window.CFDrive = (function () {
   const CLIENT_ID = String((window.CF_CONFIG && window.CF_CONFIG.googleClientId) || '');
   const DRIVE = 'https://www.googleapis.com/auth/drive.file';
   const SCOPE = 'openid email profile ' + DRIVE;
-  const FILE_NAME = 'CashFlow backup.json';
+  const FILE_NAME = 'Cash Flow backup.json';
   const TAG = 'cashflowBackup';
   const API = 'https://www.googleapis.com/drive/v3', UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
   const MULTIPART_MAX = 4 * 1024 * 1024; // larger backups use a resumable upload
@@ -74,7 +74,7 @@ window.CFDrive = (function () {
     return { sub: String(u.sub), email: u.email || '', name: u.name || u.given_name || '', given: u.given_name || '', picture: u.picture || '' };
   }
 
-  /** The newest CashFlow backup in this account's Drive, or null. Only files this app created are visible. */
+  /** The newest Cash Flow backup in this account's Drive, or null. Only files this app created are visible. */
   async function find(s) {
     const q = encodeURIComponent(`appProperties has { key='${TAG}' and value='1' } and trashed=false`);
     const r = await api(s, `${API}/files?q=${q}&orderBy=modifiedTime%20desc&pageSize=1&spaces=drive&fields=files(id,name,modifiedTime,size,appProperties)`);
@@ -85,7 +85,7 @@ window.CFDrive = (function () {
   /** Create or overwrite the backup file. Drive keeps earlier versions for about 30 days (Manage versions). */
   async function save(s, text, info, existingId) {
     const meta = { name: FILE_NAME, appProperties: { [TAG]: '1', txns: String(info.txns), people: String(info.people) } };
-    if (!existingId) Object.assign(meta, { mimeType: 'application/json', description: 'Backup from the CashFlow app. Restore it in CashFlow → Settings → Google account & backup.' });
+    if (!existingId) Object.assign(meta, { mimeType: 'application/json', description: 'Backup from the Cash Flow app. Restore it in Cash Flow → Settings → Google account & backup.' });
     const qs = 'fields=id,modifiedTime,size';
     const path = existingId ? `${UPLOAD}/files/${encodeURIComponent(existingId)}` : `${UPLOAD}/files`;
     const method = existingId ? 'PATCH' : 'POST';
