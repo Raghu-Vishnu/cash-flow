@@ -1,8 +1,8 @@
-/* Cash Flow — app logic. All data lives in this browser's localStorage, stored separately for each signed-in Google account. */
+/* Cash Flow — app logic. Data lives in the user's Google Drive and, per Google account, in this browser's storage. */
 (function () {
-  const APP_VERSION = '3.8.1'; // keep in step with VERSION in sw.js
-  const KEY = 'cashflow.v2', OLD_KEY = 'cashflow.v1', THEME_KEY = 'cashflow.theme';
-  const ACCOUNTS_KEY = 'cashflow.accounts', CURRENT_KEY = 'cashflow.user', OLD_DRIVE_KEY = 'cashflow.drive';
+  const APP_VERSION = '3.9.0'; // keep in step with VERSION in sw.js
+  const KEY = 'cashflow.v2', THEME_KEY = 'cashflow.theme';
+  const ACCOUNTS_KEY = 'cashflow.accounts', CURRENT_KEY = 'cashflow.user', SESSION_USER = 'cashflow.sessionUser';
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const PAGE = 100;
   const $ = id => document.getElementById(id);
@@ -14,52 +14,32 @@
     const me = { id: uid('p'), name: 'Me' };
     return { version: 2, profiles: [me], accounts: [], statements: [], txns: [], categories: clone(FT.DEFAULT_CATEGORIES), rules: {} };
   }
-  function migrateV1(old) {
-    const d = fresh();
-    if (!old.txns || !old.txns.length) return d;
-    const acct = { id: uid('a'), profileId: d.profiles[0].id, name: 'My account', bank: '', last4: '' };
-    d.accounts.push(acct);
-    d.rules = old.rules || {};
-    d.statements = (old.sources || []).map(s => ({ id: s.id, accountId: acct.id, fileName: s.name, added: s.added, count: s.count, from: s.from, to: s.to, check: null }));
-    d.txns = old.txns.map(t => Object.assign({}, t, { accountId: acct.id, id: acct.id + '|' + t.id }));
-    return d;
-  }
-  const readJSON = k => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
-  const writeJSON = (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } };
+  /* JSON in browser storage; never throws (storage can be blocked or full) */
+  const safe = f => { try { return f(); } catch (e) { return null; } };
+  const LS = () => safe(() => localStorage), SS = () => safe(() => sessionStorage);
+  const get = (st, k) => safe(() => JSON.parse(st.getItem(k)));
+  const put = (st, k, v) => !!safe(() => { if (v == null) st.removeItem(k); else st.setItem(k, JSON.stringify(v)); return true; });
 
   /* Who is signed in, and where their data lives on this device. Google Drive holds the main copy (see "sync").
      - "Remember this device" on: localStorage, so it survives closing the browser and works offline.
      - off (shared computer): sessionStorage, which the browser wipes when the tab closes.
      Each Google account (by its permanent ID, "sub") has its own keys, so people sharing a device stay separate. */
-  const SESSION_USER = 'cashflow.sessionUser';
   const signInRequired = () => !!(window.CFDrive && CFDrive.configured());
-  const knownAccounts = () => readJSON(ACCOUNTS_KEY) || {};            // remembered accounts only
-  const readS = k => { try { return JSON.parse(sessionStorage.getItem(k)); } catch (e) { return null; } };
-  const writeS = (k, v) => { try { v == null ? sessionStorage.removeItem(k) : sessionStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* ignore */ } };
+  const knownAccounts = () => get(LS(), ACCOUNTS_KEY) || {};            // remembered accounts only
   let user = null;
   if (signInRequired()) {
-    user = readS(SESSION_USER);
-    if (!user) { const cur = readJSON(CURRENT_KEY); user = (cur && knownAccounts()[cur]) || null; }
+    user = get(SS(), SESSION_USER);
+    if (!user) { const cur = get(LS(), CURRENT_KEY); user = (cur && knownAccounts()[cur]) || null; }
   }
-  const area = (u = user) => (u && !u.remember ? sessionStorage : localStorage);
+  const area = (u = user) => (u && !u.remember ? SS() : LS());
   const dataKey = (u = user) => u ? `${KEY}.${u.sub}` : KEY;
   const metaKey = (u = user) => `cashflow.sync.${u.sub}`;
-  const readArea = (u, k) => { try { return JSON.parse(area(u).getItem(k)); } catch (e) { return null; } };
-  const writeArea = (u, k, v) => { try { v == null ? area(u).removeItem(k) : area(u).setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } };
   const gated = () => signInRequired() && !user;
   /** Data saved on this device before sign-in existed (or when sign-in isn't set up). */
-  function legacyData() {
-    try {
-      const d = JSON.parse(localStorage.getItem(KEY));
-      if (d && d.version === 2) return d;
-      const old = JSON.parse(localStorage.getItem(OLD_KEY));
-      if (old && Array.isArray(old.txns)) return migrateV1(old);
-    } catch (e) { /* storage blocked or corrupt */ }
-    return null;
-  }
+  function legacyData() { const d = get(LS(), KEY); return d && d.version === 2 ? d : null; }
   function load() {
     if (!user) return legacyData() || fresh();
-    const d = readArea(user, dataKey());
+    const d = get(area(user), dataKey());
     return d && d.version === 2 ? d : fresh();
   }
   /** Save on this device, then (when signed in) mark it for syncing to Google Drive. */
@@ -70,9 +50,33 @@
     if (user && !(opts && opts.noSync)) markDirty();
   }
 
+  /** One-time upgrade (Nov 2026): investments became their own kind. "Investments" becomes "Other investments"
+      (so existing transactions stay put) and Stocks, Mutual funds / SIP, Gold and From investments are added.
+      Safe to run any number of times; returns true when it changed something. */
+  function upgradeData(d) {
+    if (!d || !Array.isArray(d.categories) || d.categories.some(c => c.invest)) return false;
+    const defs = clone(FT.DEFAULT_CATEGORIES.filter(c => c.invest && !d.categories.some(x => x.name === c.name && x.name !== 'Investments')));
+    const other = defs.find(c => c.name === 'Other investments');
+    const at = d.categories.findIndex(c => c.name === 'Investments' && c.type === 'debit');
+    if (at >= 0) {
+      const moved = new Set(defs.filter(c => c !== other).flatMap(c => c.keywords));
+      if (other) other.keywords = [...new Set([...d.categories[at].keywords.filter(k => !moved.has(k)), ...other.keywords])];
+      d.categories.splice(at, 1);
+    }
+    const firstDebit = d.categories.findIndex(c => c.type === 'debit');
+    d.categories.splice(at >= 0 ? at : Math.max(0, firstDebit), 0, ...defs.filter(c => c.type === 'debit'));
+    const sal = d.categories.findIndex(c => c.name === 'Salary');
+    d.categories.splice(sal >= 0 ? sal + 1 : 0, 0, ...defs.filter(c => c.type === 'credit'));
+    for (const t of d.txns) if (t.category === 'Investments') t.category = 'Other investments';
+    for (const k in d.rules) if (d.rules[k] === 'Investments') d.rules[k] = 'Other investments';
+    return true;
+  }
   let db = load();
-  let compiled = FT.compileCategories(db.categories);
-  const recompile = () => (compiled = FT.compileCategories(db.categories));
+  const upgradedAtLoad = upgradeData(db);
+  if (upgradedAtLoad && user) put(area(user), dataKey(), db);
+  let compiled, investSet;
+  const recompile = () => { compiled = FT.compileCategories(db.categories); investSet = new Set(db.categories.filter(c => c.invest).map(c => c.name)); };
+  recompile();
 
   const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
   const shiftDays = (iso, n) => { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
@@ -101,6 +105,10 @@
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
   const counted = t => t.category !== FT.EXCLUDED;
+  /** inc = income, exp = spending, invest = money put into (debit) or taken out of (credit) investments, none = not counted */
+  const kindOf = t => !counted(t) ? 'none' : investSet.has(t.category) ? 'invest' : t.type === 'credit' ? 'inc' : 'exp';
+  const KIND_LABEL = { inc: 'Income', exp: 'Expense', none: 'Not counted' };
+  const kindLabel = t => { const k = kindOf(t); return k === 'invest' ? (t.type === 'debit' ? 'Invested' : 'From investments') : KIND_LABEL[k]; };
   const profileOf = id => db.profiles.find(p => p.id === id);
   const accountOf = id => db.accounts.find(a => a.id === id);
   const acctLabel = a => a ? a.name + (a.last4 ? ` ••${a.last4}` : '') : 'Unknown account';
@@ -117,7 +125,7 @@
   }
   const ICONS = {
     'Salary': 'payments', 'Interest & Dividends': 'percent', 'Refunds & Cashback': 'replay', 'Other Income': 'savings',
-    'Investments': 'trending_up', 'Insurance': 'health_and_safety', 'Food & Dining': 'restaurant', 'Groceries': 'local_grocery_store',
+    'Investments': 'trending_up', 'Stocks': 'candlestick_chart', 'Mutual funds / SIP': 'pie_chart', 'Gold': 'diamond', 'Other investments': 'trending_up', 'From investments': 'currency_exchange', 'Insurance': 'health_and_safety', 'Food & Dining': 'restaurant', 'Groceries': 'local_grocery_store',
     'Shopping': 'shopping_bag', 'Transport & Fuel': 'directions_car', 'Bills & Utilities': 'receipt', 'Rent': 'home',
     'Credit Card Bills': 'credit_card', 'EMI & Loans': 'account_balance', 'Health': 'medical_services', 'Entertainment': 'movie',
     'Education': 'school', 'Cash Withdrawal': 'atm', 'Charges & Fees': 'request_quote', 'UPI / Others': 'qr_code_2', 'Self Transfer': 'sync_alt',
@@ -188,10 +196,15 @@
     return { from: shiftDays(p.from, -n), to: shiftDays(p.from, -1), label: 'previous ' + n + ' days' };
   }
   const within = (t, p) => t.date >= p.from && t.date <= p.to;
+  /** inv = invested (put in − taken out); net = left over; saved = income − spending (includes what was invested) */
   function totals(list) {
-    let inc = 0, exp = 0;
-    for (const t of list) if (counted(t)) t.type === 'credit' ? (inc += t.amount) : (exp += t.amount);
-    return { inc, exp, net: inc - exp };
+    let inc = 0, exp = 0, put = 0, back = 0;
+    for (const t of list) {
+      const k = kindOf(t);
+      if (k === 'inc') inc += t.amount; else if (k === 'exp') exp += t.amount;
+      else if (k === 'invest') { if (t.type === 'debit') put += t.amount; else back += t.amount; }
+    }
+    return { inc, exp, put, back, inv: put - back, net: inc - exp - (put - back), saved: inc - exp };
   }
 
   /* ================= header / navigation ================= */
@@ -203,27 +216,29 @@
     if (view.profile === 'all' && db.profiles.length < 2) view.profile = db.profiles[0].id;
     sel.value = view.profile;
     document.querySelectorAll('.nav-item').forEach(b => {
-      const on = b.dataset.page === view.page;
+      const on = b.dataset.page === (view.page === 'profile' ? 'settings' : view.page);
       b.classList.toggle('active', on);
       if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
     });
-    $('pageTitle').textContent = { dash: 'Dashboard', tx: 'Transactions', settings: 'Settings', insights: 'Insights' }[view.page];
+    $('pageTitle').textContent = { dash: 'Dashboard', tx: 'Transactions', settings: 'Settings', profile: 'Profile', insights: 'Insights' }[view.page];
     document.title = view.page === 'dash' ? 'Cash Flow – Smart Finance Manager' : `${$('pageTitle').textContent} · Cash Flow`;
     $('dash').hidden = view.page !== 'dash';
     $('txPage').hidden = view.page !== 'tx';
     $('settings').hidden = view.page !== 'settings';
     $('insightsPage').hidden = view.page !== 'insights';
-    if (view.page === 'settings' || view.page === 'insights') $('filtersWrap').hidden = true;
-    $('uploadFab').classList.toggle('hide', view.page === 'settings' || view.page === 'insights');
+    $('profilePage').hidden = view.page !== 'profile';
+    const noFilters = ['settings', 'profile', 'insights'].includes(view.page);
+    if (noFilters) $('filtersWrap').hidden = true;
+    $('uploadFab').classList.toggle('hide', noFilters);
   }
-  function goPage(p) { view.page = p; renderAll(); window.scrollTo(0, 0); if (p !== 'insights') CFStats.page({ dash: 'dashboard', tx: 'transactions', settings: 'settings' }[p] || p); }
+  function goPage(p) { view.page = p; renderAll(); window.scrollTo(0, 0); if (p !== 'insights') CFStats.page({ dash: 'dashboard', tx: 'transactions' }[p] || p); }
   document.querySelectorAll('.nav-item').forEach(b => (b.onclick = () => goPage(b.dataset.page)));
   window.addEventListener('scroll', () => document.querySelector('.appbar').classList.toggle('scrolled', window.scrollY > 4), { passive: true });
   $('profileSel').onchange = e => { view.profile = e.target.value; view.acct = 'all'; view.cat = ''; initFilters(false); renderAll(); };
 
   function renderAll() {
     renderHeader(); renderAccount(); renderStatsRow();
-    if (view.page === 'settings') renderSettings(); else if (view.page === 'insights') renderInsights(); else renderDash();
+    if (view.page === 'settings' || view.page === 'profile') renderSettings(); else if (view.page === 'insights') renderInsights(); else renderDash();
   }
 
   /* ================= dashboard ================= */
@@ -255,10 +270,11 @@
   }
 
   function renderDash() {
+    if (view.page !== 'dash' && view.page !== 'tx') return; // e.g. a theme change while on Settings or Profile
     const scoped = scopeTxns();
     const hasData = scoped.length > 0;
     $('empty').hidden = hasData; $('dashBody').hidden = !hasData;
-    $('filtersWrap').hidden = !hasData || view.page === 'settings';
+    $('filtersWrap').hidden = !hasData;
     $('txEmpty').hidden = hasData; document.querySelector('.tx-card').hidden = !hasData;
     if (!hasData) { if (chart) { chart.destroy(); chart = null; } return; }
     const f = document.querySelector('.filters');
@@ -279,14 +295,14 @@
     };
     $('kIncome').textContent = fmt(tot.inc);
     $('kExpense').textContent = fmt(tot.exp);
+    $('kInvest').textContent = fmt(tot.inv);
     $('kNet').textContent = fmt(tot.net);
     $('kNet').style.color = tot.net < 0 ? css('--bad') : '';
-    const rate = tot.inc ? (tot.net / tot.inc) * 100 : null;
-    $('kRate').textContent = rate == null ? '–' : rate.toFixed(0) + '%';
-    $('kIncomeSub').innerHTML = delta(tot.inc, pt && pt.inc, true) || `${list.filter(t => t.type === 'credit' && counted(t)).length} credits`;
-    $('kExpenseSub').innerHTML = delta(tot.exp, pt && pt.exp, false) || `${list.filter(t => t.type === 'debit' && counted(t)).length} debits`;
-    $('kNetSub').textContent = tot.net >= 0 ? 'Saved this period' : 'You spent more than you earned';
-    $('kRateSub').textContent = rate == null ? 'No income recorded' : 'of income kept';
+    const rate = tot.inc ? Math.round((tot.saved / tot.inc) * 100) : null;
+    $('kIncomeSub').innerHTML = delta(tot.inc, pt && pt.inc, true) || `${list.filter(t => kindOf(t) === 'inc').length} credits`;
+    $('kExpenseSub').innerHTML = delta(tot.exp, pt && pt.exp, false) || `${list.filter(t => kindOf(t) === 'exp').length} debits`;
+    $('kInvestSub').textContent = tot.back ? `${fmt(tot.put)} in · ${fmt(tot.back)} out` : tot.put ? 'Put into investments' : 'Nothing invested';
+    $('kNetSub').textContent = rate == null ? 'No income recorded' : `Saved ${rate}% of income, incl. invested`;
 
     renderChart(list, p, scoped);
     renderCategoryBars(list);
@@ -313,19 +329,22 @@
       title = `Income vs expenses by month · ${p.label}`;
     }
     const idx = new Map(keys.map((k, i) => [k, i]));
-    const inc = keys.map(() => 0), exp = keys.map(() => 0);
+    const inc = keys.map(() => 0), exp = keys.map(() => 0), inv = keys.map(() => 0);
     for (const t of list) {
-      if (!counted(t)) continue;
-      const i = idx.get(keyOf(t)); if (i == null) continue;
-      (t.type === 'credit' ? inc : exp)[i] += t.amount;
+      const k = kindOf(t), i = idx.get(keyOf(t));
+      if (k === 'none' || i == null) continue;
+      if (k === 'inc') inc[i] += t.amount; else if (k === 'exp') exp[i] += t.amount; else inv[i] += t.type === 'debit' ? t.amount : -t.amount;
     }
+    const hasInv = inv.some(v => v);
     $('chartTitle').textContent = title;
     $('chartLegend').innerHTML = single ? '' :
-      `<span><i class="swatch" style="background:var(--income)"></i>Income</span><span><i class="swatch" style="background:var(--expense)"></i>Expenses</span>`;
+      `<span><i class="swatch" style="background:var(--income)"></i>Income</span><span><i class="swatch" style="background:var(--expense)"></i>Expenses</span>` +
+      (hasInv ? `<span><i class="swatch" style="background:var(--invest)"></i>Invested</span>` : '');
     const bar = { borderRadius: 4, borderSkipped: 'bottom', maxBarThickness: 28, categoryPercentage: 0.7, barPercentage: 0.9 };
     const datasets = [];
     if (!single) datasets.push({ ...bar, label: 'Income', data: inc, backgroundColor: css('--income') });
     datasets.push({ ...bar, label: single ? 'Spent' : 'Expenses', data: exp, backgroundColor: css('--expense') });
+    if (!single && hasInv) datasets.push({ ...bar, label: 'Invested', data: inv, backgroundColor: css('--invest') });
 
     if (chart) chart.destroy();
     if (!window.Chart) return;
@@ -342,7 +361,7 @@
             callbacks: {
               title: items => titleOf(items[0].dataIndex),
               label: c => ` ${c.dataset.label}: ${fmt(c.parsed.y)}`,
-              footer: items => single || items.length < 2 ? '' : `Net: ${fmt(items[0].parsed.y - items[1].parsed.y)}`,
+              footer: items => single || items.length < 2 ? '' : `Left over: ${fmt(items.reduce((s, it, n) => s + (n === 0 ? it.parsed.y : -it.parsed.y), 0))}`,
             },
           },
         },
@@ -379,18 +398,22 @@
     }).join('');
   }
   function renderCategoryBars(list) {
-    const deb = list.filter(t => t.type === 'debit' && counted(t)), cred = list.filter(t => t.type === 'credit' && counted(t));
-    const te = deb.reduce((s, t) => s + t.amount, 0), ti = cred.reduce((s, t) => s + t.amount, 0);
+    const deb = list.filter(t => kindOf(t) === 'exp'), cred = list.filter(t => kindOf(t) === 'inc');
+    const put = list.filter(t => kindOf(t) === 'invest' && t.type === 'debit'), back = list.filter(t => kindOf(t) === 'invest' && t.type === 'credit');
+    const sum = a => a.reduce((s, t) => s + t.amount, 0), te = sum(deb), ti = sum(cred), tp = sum(put), tb = sum(back);
     barList($('expCats'), groupBy(deb, t => t.category), te, 'var(--expense)', true);
     barList($('incCats'), groupBy(cred, t => t.category), ti, 'var(--income)', true);
     barList($('topMerchants'), groupBy(deb, t => t.merchant).slice(0, 8), te, 'var(--expense)', false);
+    $('investCard').hidden = !put.length && !back.length;
+    barList($('invCats'), groupBy(put, t => t.category), tp, 'var(--invest)', true);
+    $('investNote').textContent = tb ? `${fmt(tp)} put in, ${fmt(tb)} taken out (redemptions, maturity).` : 'Money put into investments. Not counted as spending.';
   }
   const catsFor = type => db.categories.filter(c => c.type === type || c.type === 'any').map(c => c.name);
 
   function renderTransactions(list) {
     const q = view.q.toLowerCase();
     const rows = list.filter(t =>
-      (!view.type || t.type === view.type) && (!view.cat || t.category === view.cat) &&
+      (!view.type || kindOf(t) === view.type) && (!view.cat || t.category === view.cat) &&
       (!q || t.desc.toLowerCase().includes(q) || t.merchant.toLowerCase().includes(q))
     ).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
     const multi = view.acct === 'all' && accountsInScope().length > 1;
@@ -410,10 +433,10 @@
       }
       const acct = multi ? ' · ' + esc(accountOf(t.accountId)?.name) : '';
       html += `<button class="tx-item${counted(t) ? '' : ' excluded'}" data-id="${esc(t.id)}" aria-label="${esc(t.merchant)}, ${t.type === 'credit' ? 'income' : 'expense'} ${inr2.format(t.amount)}, ${esc(t.category)}">
-        <span class="tx-avatar${t.type === 'credit' ? ' credit' : ''}">${catIcon(t.category)}</span>
+        <span class="tx-avatar${kindOf(t) === 'invest' ? ' invest' : t.type === 'credit' ? ' credit' : ''}">${catIcon(t.category)}</span>
         <span class="tx-main"><span class="tx-title">${esc(t.merchant)}${t.manual ? '<span class="tag">added</span>' : ''}${t.autoSalary ? '<span class="tag">detected</span>' : ''}</span>
           <span class="tx-sub">${esc(t.category)}${acct}</span></span>
-        <span class="tx-amt ${t.type}">${t.type === 'credit' ? '+' : '−'}${inr2.format(t.amount)}</span></button>`;
+        <span class="tx-amt ${kindOf(t) === 'invest' ? 'invest' : t.type}">${t.type === 'credit' ? '+' : '−'}${inr2.format(t.amount)}</span></button>`;
     }
     $('txBody').innerHTML = html || '<div class="none">No matching transactions.</div>';
     $('moreBtn').hidden = rows.length <= view.limit;
@@ -430,7 +453,7 @@
     $('teTitle').textContent = t.merchant;
     $('teAmt').textContent = (t.type === 'credit' ? '+' : '−') + inr2.format(t.amount);
     $('teAmt').className = 'te-amt' + (t.type === 'credit' ? ' credit' : '');
-    $('teMeta').textContent = `${fmtDate(t.date)} · ${t.type === 'credit' ? 'Income' : 'Expense'} · ${acctLabel(a)}${view.profile === 'all' ? ' (' + (profileOf(a?.profileId)?.name || '') + ')' : ''}`;
+    $('teMeta').textContent = `${fmtDate(t.date)} · ${kindLabel(t)} · ${acctLabel(a)}${view.profile === 'all' ? ' (' + (profileOf(a?.profileId)?.name || '') + ')' : ''}`;
     $('teDesc').textContent = t.desc;
     const opts = catsFor(t.type);
     $('teCat').innerHTML = opts.map(c => `<option>${esc(c)}</option>`).join('') + (opts.includes(t.category) ? '' : `<option>${esc(t.category)}</option>`);
@@ -653,7 +676,7 @@
         level: 'warn', html: true,
         msg: `The running balance doesn't add up in ${c.gaps.length} place${c.gaps.length > 1 ? 's' : ''}, so something may have been missed or misread:<ul class="gap-list">` +
           c.gaps.slice(0, 15).map(g => `<li>${g.from ? `Between ${fmtDate(g.from)} and ${fmtDate(g.to)}` : `On ${fmtDate(g.to)}`}: <b>${inr2.format(g.amount)}</b> ${g.kind === 'credit' ? 'more came in' : 'more went out'} than the transactions show (near "${esc(g.near)}"). Possibly a missing <b>${g.kind === 'credit' ? 'income' : 'expense'}</b>.</li>`).join('') +
-          `</ul>You can add a missing one with <b>+ Add transaction</b>. For help, create an anonymised report in <b>Settings → Statement diagnostics</b>.`,
+          `</ul>You can add a missing one with <b>+ Add transaction</b>. For help, create an anonymised report in <b>Profile → Help &amp; supportics</b>.`,
       });
     }
     if (c.unparsed && c.unparsed.length) {
@@ -735,7 +758,7 @@
   /* ================= manual transactions ================= */
   function openAddTx() {
     const accts = accountsInScope();
-    if (!accts.length) { toast('Add an account first (Settings → People & accounts).'); return; }
+    if (!accts.length) { toast('Add a bank account first (Profile → People & bank accounts).'); return; }
     $('tdAcct').innerHTML = accts.map(a => `<option value="${a.id}">${esc(acctLabel(a))}</option>`).join('');
     if (view.acct !== 'all') $('tdAcct').value = view.acct;
     $('tdDate').value = today(); $('tdDesc').value = ''; $('tdAmt').value = ''; $('tdType').value = 'debit';
@@ -775,6 +798,8 @@
   });
 
   /* ================= settings ================= */
+  /** debit = expense, invest = investment (money set aside, not spent), credit = income, any = not counted */
+  const catKind = c => c.type === 'debit' && c.invest ? 'invest' : c.type;
   function renderSettings() {
     // people & accounts
     $('peopleList').innerHTML = db.profiles.map(p => {
@@ -804,14 +829,21 @@
     }).join('');
 
     // categories
+    const locked = c => c.fallback || c.name === FT.EXCLUDED;
     const row = (c, i) => `<div class="cat-row" data-i="${i}">
-      <input value="${esc(c.name)}" data-f="name" aria-label="Category name" ${c.fallback || c.name === FT.EXCLUDED ? 'disabled' : ''} maxlength="40">
+      <input value="${esc(c.name)}" data-f="name" aria-label="Category name" ${locked(c) ? 'disabled' : ''} maxlength="40">
       <input class="kw" value="${esc((c.keywords || []).join(', '))}" data-f="kw" aria-label="Keywords for ${esc(c.name)}" ${c.fallback ? 'disabled placeholder="Used when nothing else matches"' : 'placeholder="keywords…"'}>
-      <span class="ctl">${c.fallback ? '' : `<button class="link" data-act="up" title="Higher priority" aria-label="Move up">↑</button><button class="link" data-act="down" title="Lower priority" aria-label="Move down">↓</button>`}
-      ${c.fallback || c.name === FT.EXCLUDED ? '' : `<button class="link danger" data-act="del-cat" title="Delete" aria-label="Delete category">✕</button>`}</span></div>`;
-    const by = type => db.categories.map((c, i) => [c, i]).filter(([c]) => c.type === type).map(([c, i]) => row(c, i)).join('');
-    $('catDebit').innerHTML = by('debit'); $('catCredit').innerHTML = by('credit'); $('catAny').innerHTML = by('any');
-
+      <span class="ctl">${c.fallback ? '<span></span><span></span>' : `<button class="link" data-act="up" title="Move up" aria-label="Move up">↑</button><button class="link" data-act="down" title="Move down" aria-label="Move down">↓</button>`}${locked(c) ? '<span></span>' : `<button class="link danger" data-act="del-cat" title="Delete" aria-label="Delete category">✕</button>`}</span></div>`;
+    const by = type => db.categories.map((c, i) => [c, i]).filter(([c]) => catKind(c) === type).map(([c, i]) => row(c, i)).join('');
+    $('catDebit').innerHTML = by('debit'); $('catInvest').innerHTML = by('invest'); $('catCredit').innerHTML = by('credit'); $('catAny').innerHTML = by('any');
+    $('catInvestWrap').hidden = !$('catInvest').innerHTML;
+    $('catCount').textContent = `${db.categories.length}`;
+    $('ruleCount').textContent = `${Object.keys(db.rules).length}`;
+    // link to the profile
+    $('plName').textContent = user ? (user.name || user.email) : 'Profile';
+    $('plSub').textContent = user ? `${user.email} · people, bank accounts, help` : 'People, bank accounts, help';
+    $('plInitial').innerHTML = user ? esc(firstName(user).slice(0, 1).toUpperCase()) : '<span class="ms">person</span>';
+    $('verLabel').textContent = 'v' + APP_VERSION;
     // rules
     const rules = Object.entries(db.rules).sort((a, b) => a[0].localeCompare(b[0]));
     $('ruleList').innerHTML = rules.map(([m, c]) => `<div class="rule"><span><b>${esc(m.replace(/\b\w/g, x => x.toUpperCase()))}</b> → ${esc(c)}</span><button class="link danger" data-act="del-rule" data-m="${esc(m)}">Remove</button></div>`).join('') ||
@@ -852,7 +884,8 @@
     db.profiles.push({ id: uid('p'), name: name.slice(0, 30) }); save(); renderAll();
   };
 
-  $('settings').addEventListener('click', e => {
+  $('main').addEventListener('click', e => {
+    if (!e.target.closest('#settings, #profilePage')) return;
     const b = e.target.closest('[data-act]'); if (!b) return;
     const act = b.dataset.act;
     if (act === 'add-acct') openAcctDlg(null, b.dataset.p);
@@ -896,7 +929,8 @@
     }
   });
 
-  $('settings').addEventListener('change', e => {
+  $('main').addEventListener('change', e => {
+    if (!e.target.closest('#settings')) return;
     const inp = e.target.closest('.cat-row input'); if (!inp) return;
     const c = db.categories[+inp.closest('.cat-row').dataset.i];
     if (inp.dataset.f === 'kw') {
@@ -915,13 +949,13 @@
 
   $('addCatForm').onsubmit = e => {
     e.preventDefault();
-    const name = $('newCatName').value.trim(), type = $('newCatType').value;
+    const name = $('newCatName').value.trim(), kind = $('newCatType').value, type = kind === 'invest' ? 'debit' : kind;
     if (db.categories.some(c => c.name.toLowerCase() === name.toLowerCase())) { toast('A category with that name already exists.'); return; }
     const keywords = $('newCatKw').value.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
     const fb = db.categories.findIndex(c => c.fallback && c.type === type); // insert above the type's fallback
-    db.categories.splice(fb < 0 ? db.categories.length : fb, 0, { name, type, keywords });
+    db.categories.splice(fb < 0 ? db.categories.length : fb, 0, Object.assign({ name, type, keywords }, kind === 'invest' ? { invest: true } : {}));
     $('newCatName').value = ''; $('newCatKw').value = '';
-    recompile(); save(); renderSettings(); toast(`Added "${name}".` + (keywords.length ? ' Click "Re-apply" to sort existing transactions into it.' : ''));
+    recompile(); save(); renderSettings(); toast(`Added "${name}".` + (keywords.length ? ' Tap "Re-apply" to sort existing transactions into it.' : ''));
   };
 
   $('reapplyBtn').onclick = () => {
@@ -947,7 +981,7 @@
   function parseBackup(text) {
     let d = JSON.parse(text);
     if (!d || typeof d !== 'object') throw 0;
-    if (d.version !== 2) { if (!Array.isArray(d.txns)) throw 0; d = migrateV1(d); }
+    if (d.version !== 2) throw 0;
     if (!Array.isArray(d.profiles) || !d.profiles.length || !Array.isArray(d.txns)) throw 0;
     return d;
   }
@@ -960,7 +994,6 @@
   function exportRange() { const { all } = exportSel(); return all.length ? [all[0].date, all[all.length - 1].date] : [null, null]; }
   function exportPeriod() { let f = $('exFrom').value, t = $('exTo').value; if (f && t && f > t) [f, t] = [t, f]; return [f, t]; }
   function exportRows() { const [f, t] = exportPeriod(); return exportSel().all.filter(x => (!f || x.date >= f) && (!t || x.date <= t)); }
-  const sumOf = (rows, type) => rows.reduce((s, t) => s + (t.type === type ? t.amount : 0), 0);
   function syncExportDates() {
     const [min, max] = exportRange();
     for (const id of ['exFrom', 'exTo']) { const el = $(id); el.min = min || ''; el.max = max || ''; el.disabled = !min; }
@@ -972,7 +1005,8 @@
     for (const id of ['exFrom', 'exTo']) { const el = $(id); if (min && el.value && (el.value < min || el.value > max)) el.value = el.value < min ? min : max; }
     const rows = exportRows();
     $('exRange').textContent = min ? `Transactions for this selection run from ${fmtDate(min)} to ${fmtDate(max)}.` : 'There are no transactions for this selection yet.';
-    $('exCount').textContent = rows.length ? `${rows.length} transactions · Income ${fmt(sumOf(rows, 'credit'))} · Expense ${fmt(sumOf(rows, 'debit'))}` : 'No transactions in this period.';
+    const T = totals(rows);
+    $('exCount').textContent = rows.length ? `${rows.length} transactions · Income ${fmt(T.inc)} · Expenses ${fmt(T.exp)}` + (T.inv ? ` · Invested ${fmt(T.inv)}` : '') : 'No transactions in this period.';
     ['exCsv', 'exXlsx', 'exPdf'].forEach(id => ($(id).disabled = !rows.length));
   }
   function fillExportAccts() {
@@ -1000,12 +1034,12 @@
   const rowInfo = t => { const a = accountOf(t.accountId); return { person: profileOf(a?.profileId)?.name || '', account: acctLabel(a) }; };
   function monthly(rows) {
     const m = new Map();
-    for (const t of rows) { const k = t.date.slice(0, 7), v = m.get(k) || { inc: 0, exp: 0 }; if (t.type === 'credit') v.inc += t.amount; else v.exp += t.amount; m.set(k, v); }
-    return [...m].sort(([x], [y]) => x.localeCompare(y)).map(([k, v]) => ({ month: `${MONTHS[+k.slice(5) - 1]} ${k.slice(0, 4)}`, inc: v.inc, exp: v.exp, net: v.inc - v.exp }));
+    for (const t of rows) { const k = t.date.slice(0, 7); m.set(k, (m.get(k) || []).concat(t)); }
+    return [...m].sort(([x], [y]) => x.localeCompare(y)).map(([k, list]) => Object.assign({ month: `${MONTHS[+k.slice(5) - 1]} ${k.slice(0, 4)}` }, totals(list)));
   }
   function byCategory(rows) {
     const m = new Map();
-    for (const t of rows) { const k = t.type + '|' + t.category, v = m.get(k) || { type: t.type, cat: t.category, total: 0, n: 0 }; v.total += t.amount; v.n++; m.set(k, v); }
+    for (const t of rows) { const type = kindLabel(t), k = type + '|' + t.category, v = m.get(k) || { type, cat: t.category, total: 0, n: 0 }; v.total += t.amount; v.n++; m.set(k, v); }
     return [...m.values()].sort((x, y) => x.type.localeCompare(y.type) || y.total - x.total);
   }
   const r2 = n => Math.round(n * 100) / 100;
@@ -1014,7 +1048,7 @@
     const rows = exportRows();
     const out = [['Date', 'Person', 'Account', 'Type', 'Amount', 'Category', 'Merchant', 'Description', 'Balance']].concat(rows.map(t => {
       const i = rowInfo(t);
-      return [t.date, i.person, i.account, t.type === 'credit' ? 'Income' : 'Expense', t.amount, t.category, t.merchant, t.desc, t.balance ?? ''];
+      return [t.date, i.person, i.account, kindLabel(t), t.type === 'credit' ? t.amount : -t.amount, t.category, t.merchant, t.desc, t.balance ?? ''];
     }));
     // a leading = + - @ would make Excel run the cell as a formula; prefix with ' (CSV injection guard)
     const cell = c => { let s = String(c); if (typeof c !== 'number' && /^[=+\-@\t\r]/.test(s)) s = "'" + s; return `"${s.replace(/"/g, '""')}"`; };
@@ -1024,34 +1058,21 @@
 
   $('exXlsx').onclick = () => {
     if (!window.XLSX) return toast('The Excel library failed to load. Try reloading the page.');
-    const rows = exportRows(), [f, t] = exportPeriod(), inc = sumOf(rows, 'credit'), exp = sumOf(rows, 'debit');
-    const MONEY = '#,##0.00', DATE = 'dd-mmm-yyyy';
-    const serial = iso => { const [y, m, d] = iso.split('-').map(Number); return (Date.UTC(y, m - 1, d) - Date.UTC(1899, 11, 30)) / 864e5; };
-    const sheet = (aoa, widths, fmtCols) => {
-      const ws = XLSX.utils.aoa_to_sheet(aoa);
-      ws['!cols'] = widths.map(w => ({ wch: w }));
-      for (const addr in ws) {
-        if (addr[0] === '!') continue;
-        const c = ws[addr], col = XLSX.utils.decode_cell(addr).c;
-        if (c.t === 'n' && fmtCols[col]) c.z = fmtCols[col];
-      }
-      return ws;
-    };
-    const summary = [['Cash Flow statement'], ['Selection', exportWho()], ['Period', `${fmtDate(f)} to ${fmtDate(t)}`], ['Generated', fmtDate(today())], [],
-      ['Income', r2(inc)], ['Expense', r2(exp)], ['Net', r2(inc - exp)], ['Transactions', rows.length], [],
-      ['Month', 'Income', 'Expense', 'Net'], ...monthly(rows).map(m => [m.month, r2(m.inc), r2(m.exp), r2(m.net)]), [],
-      ['Category', 'Type', 'Total', 'Transactions'], ...byCategory(rows).map(c => [c.cat, c.type === 'credit' ? 'Income' : 'Expense', r2(c.total), c.n])];
-    const ws1 = sheet(summary, [24, 34, 14, 14], { 1: MONEY, 2: MONEY, 3: MONEY });
-    if (ws1.B9) delete ws1.B9.z; // the transaction count is not money
-    const tx = [['Date', 'Person', 'Account', 'Category', 'Merchant', 'Description', 'Income', 'Expense', 'Balance']];
-    for (const x of rows) { const i = rowInfo(x); tx.push([serial(x.date), i.person, i.account, x.category, x.merchant, x.desc, x.type === 'credit' ? x.amount : null, x.type === 'debit' ? x.amount : null, x.balance ?? null]); }
-    tx.push([], ['Total', '', '', '', '', '', r2(inc), r2(exp)]);
-    const ws2 = sheet(tx, [12, 14, 22, 20, 22, 60, 13, 13, 13], { 0: DATE, 6: MONEY, 7: MONEY, 8: MONEY });
-    // the category table's transaction counts are plain numbers
-    for (let r = 0; r < summary.length; r++) if (summary[r][0] === 'Category') { for (let k = r + 1; k < summary.length && summary[k].length; k++) { const c = ws1[XLSX.utils.encode_cell({ r: k, c: 3 })]; if (c) delete c.z; } }
+    const rows = exportRows(), [f, t] = exportPeriod(), T = totals(rows);
+    // cells carry their own number format, so nothing needs fixing up afterwards
+    const money = v => ({ t: 'n', v: r2(v), z: '#,##0.00' });
+    const date = iso => { const [y, m, d] = iso.split('-').map(Number); return { t: 'n', v: (Date.UTC(y, m - 1, d) - Date.UTC(1899, 11, 30)) / 864e5, z: 'dd-mmm-yyyy' }; };
+    const sheet = (aoa, widths) => { const ws = XLSX.utils.aoa_to_sheet(aoa); ws['!cols'] = widths.map(wch => ({ wch })); return ws; };
+    const summary = sheet([['Cash Flow statement'], ['Selection', exportWho()], ['Period', `${fmtDate(f)} to ${fmtDate(t)}`], ['Generated', fmtDate(today())], [],
+      ['Income', money(T.inc)], ['Expenses', money(T.exp)], ['Invested', money(T.inv)], ['Left over', money(T.net)], ['Transactions', rows.length], [],
+      ['Month', 'Income', 'Expenses', 'Invested', 'Left over'], ...monthly(rows).map(m => [m.month, money(m.inc), money(m.exp), money(m.inv), money(m.net)]), [],
+      ['Category', 'Type', 'Total', 'Transactions'], ...byCategory(rows).map(c => [c.cat, c.type, money(c.total), c.n])], [24, 34, 14, 14, 14]);
+    const txs = sheet([['Date', 'Person', 'Account', 'Type', 'Category', 'Merchant', 'Description', 'Money in', 'Money out', 'Balance'],
+      ...rows.map(x => { const i = rowInfo(x); return [date(x.date), i.person, i.account, kindLabel(x), x.category, x.merchant, x.desc, x.type === 'credit' ? money(x.amount) : null, x.type === 'debit' ? money(x.amount) : null, x.balance == null ? null : money(x.balance)]; })],
+      [12, 14, 22, 16, 20, 22, 60, 13, 13, 13]);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws1, 'Summary');
-    XLSX.utils.book_append_sheet(wb, ws2, 'Transactions');
+    XLSX.utils.book_append_sheet(wb, summary, 'Summary');
+    XLSX.utils.book_append_sheet(wb, txs, 'Transactions');
     XLSX.writeFile(wb, exportName('xlsx'));
     CFStats.event('download-excel');
   };
@@ -1072,7 +1093,7 @@
     btn.disabled = true; btn.textContent = 'Preparing…';
     try {
       const JsPDF = await jsPDFReady();
-      const rows = exportRows(), [f, t] = exportPeriod(), inc = sumOf(rows, 'credit'), exp = sumOf(rows, 'debit');
+      const rows = exportRows(), [f, t] = exportPeriod(), T = totals(rows);
       // the PDF's built-in fonts cover Latin characters only: show ₹ as Rs. and drop anything else they can't draw
       const txt = s => String(s ?? '').replace(/₹/g, 'Rs.').replace(/••/g, 'ending ').replace(/[^\x20-\x7E\xA0-\xFF]/g, '').replace(/\s+/g, ' ').trim();
       const num = n => n == null || n === '' ? '' : Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -1085,15 +1106,15 @@
       doc.text(`Period: ${fmtDate(f)} to ${fmtDate(t)}     Generated: ${fmtDate(today())}     Amounts in INR`, M, 85);
       doc.setTextColor(0);
       const right = { halign: 'right' };
-      doc.autoTable(Object.assign({}, base, { startY: 100, head: [['Income', 'Expense', 'Net', 'Transactions']], body: [[num(inc), num(exp), num(inc - exp), String(rows.length)]],
+      doc.autoTable(Object.assign({}, base, { startY: 100, head: [['Income', 'Expenses', 'Invested', 'Left over', 'Transactions']], body: [[num(T.inc), num(T.exp), num(T.inv), num(T.net), String(rows.length)]],
         styles: Object.assign({}, base.styles, { fontSize: 11, halign: 'right' }), headStyles: Object.assign({}, base.headStyles, right) }));
       const heading = (s, y) => { doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.text(s, M, y); doc.setFont('helvetica', 'normal'); return y + 6; };
-      doc.autoTable(Object.assign({}, base, { startY: heading('Month by month', doc.lastAutoTable.finalY + 26), head: [['Month', 'Income', 'Expense', 'Net']],
-        body: monthly(rows).map(m => [m.month, num(m.inc), num(m.exp), num(m.net)]), columnStyles: { 1: right, 2: right, 3: right } }));
+      doc.autoTable(Object.assign({}, base, { startY: heading('Month by month', doc.lastAutoTable.finalY + 26), head: [['Month', 'Income', 'Expenses', 'Invested', 'Left over']],
+        body: monthly(rows).map(m => [m.month, num(m.inc), num(m.exp), num(m.inv), num(m.net)]), columnStyles: { 1: right, 2: right, 3: right, 4: right } }));
       doc.autoTable(Object.assign({}, base, { startY: heading('By category', doc.lastAutoTable.finalY + 26), head: [['Category', 'Type', 'Total', 'Transactions']],
-        body: byCategory(rows).map(c => [txt(c.cat), c.type === 'credit' ? 'Income' : 'Expense', num(c.total), String(c.n)]), columnStyles: { 2: right, 3: right } }));
+        body: byCategory(rows).map(c => [txt(c.cat), c.type, num(c.total), String(c.n)]), columnStyles: { 2: right, 3: right } }));
       doc.addPage();
-      doc.autoTable(Object.assign({}, base, { startY: heading('Transactions', 52), head: [['Date', 'Description', 'Category', 'Income', 'Expense', 'Balance']],
+      doc.autoTable(Object.assign({}, base, { startY: heading('Transactions', 52), head: [['Date', 'Description', 'Category', 'Money in', 'Money out', 'Balance']],
         body: rows.map(x => [fmtDate(x.date), txt(x.desc).slice(0, 120), txt(x.category), x.type === 'credit' ? num(x.amount) : '', x.type === 'debit' ? num(x.amount) : '', num(x.balance)]),
         styles: Object.assign({}, base.styles, { fontSize: 8, overflow: 'linebreak' }),
         columnStyles: { 0: { cellWidth: 58 }, 1: { cellWidth: 'auto' }, 2: { cellWidth: 78 }, 3: Object.assign({ cellWidth: 62 }, right), 4: Object.assign({ cellWidth: 62 }, right), 5: Object.assign({ cellWidth: 66 }, right) } }));
@@ -1133,17 +1154,17 @@
   const firstName = u => (u.given || (u.name || '').split(' ')[0] || (u.email || '').split('@')[0] || '').trim();
   let sess = null;   // Google session for the signed-in account: memory only, about 1 hour
   let busy = false;
-  let meta = (user && readArea(user, metaKey())) || {};  // sync state: base, remoteModified, syncedAt, editedAt, dirty, paused
-  const setMeta = patch => { meta = Object.assign({}, meta, patch); if (user) writeArea(user, metaKey(), meta); };
+  let meta = (user && get(area(user), metaKey())) || {};  // sync state: base, remoteModified, syncedAt, editedAt, dirty, paused
+  const setMeta = patch => { meta = Object.assign({}, meta, patch); if (user) put(area(user), metaKey(), meta); };
 
   function setUser(u) {
     if (u && u.remember) {
       const all = knownAccounts(); all[u.sub] = u;
-      writeJSON(ACCOUNTS_KEY, all); writeJSON(CURRENT_KEY, u.sub); writeS(SESSION_USER, null);
-    } else if (u) { writeS(SESSION_USER, u); writeJSON(CURRENT_KEY, null); }
-    else { writeS(SESSION_USER, null); writeJSON(CURRENT_KEY, null); }
+      put(LS(), ACCOUNTS_KEY, all); put(LS(), CURRENT_KEY, u.sub); put(SS(), SESSION_USER, null);
+    } else if (u) { put(SS(), SESSION_USER, u); put(LS(), CURRENT_KEY, null); }
+    else { put(SS(), SESSION_USER, null); put(LS(), CURRENT_KEY, null); }
     user = u;
-    meta = (u && readArea(u, metaKey(u))) || {};
+    meta = (u && get(area(u), metaKey(u))) || {};
     checkAdmin();
   }
   /** A Drive session for the signed-in account. Opens Google's popup only when needed, so call it straight from a click. */
@@ -1189,8 +1210,8 @@
         const f = await CFDrive.find(s);
         let remote = null;
         if (f && f.modified !== meta.remoteModified) {
-          try { remote = parseBackup(await CFDrive.download(s, f.id)); }
-          catch (e) { if (e && e.code) throw e; throw new Error('The Cash Flow file in your Google Drive is damaged, so it was left as it is. Delete the Drive copy in Settings, then turn sync back on to replace it.'); }
+          try { remote = parseBackup(await CFDrive.download(s, f.id)); upgradeData(remote); }
+          catch (e) { if (e && e.code) throw e; throw new Error('Your Google Drive file is damaged, so it was left untouched. In Profile, delete the Drive copy, then turn sync back on.'); }
         }
         // a brand-new device with nothing on it simply takes the Drive copy
         const localEmpty = !meta.base && !local.accounts.length && !local.txns.length;
@@ -1204,7 +1225,7 @@
         // the user may have changed something while we were talking to Google: fold those edits in too
         const editedDuring = JSON.stringify(db) !== snap;
         const next = editedDuring ? CFSync.merge(db, merged, CFSync.fingerprint(local), true) : merged;
-        if (!CFSync.same(next, db)) { changedHere = true; db = next; writeArea(user, dataKey(), db); }
+        if (!CFSync.same(next, db)) { changedHere = true; db = next; put(area(user), dataKey(), db); }
         setMeta({ base: CFSync.fingerprint(merged), remoteModified: up ? up.modifiedTime : f ? f.modified : null, syncedAt: new Date().toISOString(), dirty: editedDuring });
         if (!editedDuring) break;
       }
@@ -1245,7 +1266,7 @@
     $('syncNowBtn').disabled = busy || syncing || !st || !!meta.paused;
   }
   $('syncBtn').onclick = $('syncNowBtn').onclick = async () => {
-    if (meta.paused) { goPage('settings'); $('driveCard').scrollIntoView({ block: 'start' }); return; }
+    if (meta.paused) return goPage('profile');
     if (await syncNow(true)) toast('Synced with Google Drive.');
   };
   window.addEventListener('online', () => { renderSync(); scheduleSync(300); });
@@ -1278,21 +1299,21 @@
   function enterAccount(u, remember) {
     const known = knownAccounts()[u.sub];
     const rec = { sub: u.sub, email: u.email, name: u.name, given: u.given, remember: !!(remember || known) };
-    writeJSON(OLD_DRIVE_KEY, null); // state from the earlier backup-only version
-    let d = readArea(rec, dataKey(rec)), adopted = false;
+    let d = get(area(rec), dataKey(rec)), adopted = false;
     if (!(d && d.version === 2)) {
       d = null;
       const legacy = legacyData();
       if (legacy && (legacy.txns.length || legacy.accounts.length) &&
           confirm(`This device has Cash Flow data from before sign-in (${legacy.txns.length} transactions).\n\nMove it into ${u.email}?\n\nChoose Cancel if it belongs to someone else. It stays on this device for them.`)) {
-        d = legacy; adopted = true; writeJSON(KEY, null); writeJSON(OLD_KEY, null);
+        d = legacy; adopted = true; put(LS(), KEY, null);
       }
       d = d || fresh();
       if (d.profiles.length === 1 && d.profiles[0].name === 'Me' && firstName(rec)) d.profiles[0].name = firstName(rec);
     }
+    upgradeData(d);
     setUser(rec);
     db = d; recompile();
-    writeArea(rec, dataKey(rec), db);
+    put(area(rec), dataKey(rec), db);
     if (adopted) setMeta({ dirty: true, editedAt: Date.now() });
     Object.assign(view, { page: 'dash', profile: db.profiles[0].id, acct: 'all', cat: '' });
     initFilters(false); renderGate(); renderAll();
@@ -1319,7 +1340,9 @@
     if (u) { $('avatarInitial').textContent = firstName(u).slice(0, 1); av.title = `Signed in as ${u.email}`; av.setAttribute('aria-label', `Google account: ${u.email}`); }
     renderSync();
   }
-  $('avatarBtn').onclick = () => { goPage('settings'); $('driveCard').scrollIntoView({ block: 'start' }); };
+  $('avatarBtn').onclick = () => goPage('profile');
+  $('toProfile').onclick = () => goPage('profile');
+  $('toSettings').onclick = () => goPage('settings');
   async function driveRun(btn, label, fn) {
     if (busy) return;
     const b = $(btn), html = b.innerHTML;
@@ -1350,10 +1373,10 @@
     if (!on && !confirm('Stop keeping your data on this device?\n\nIt stays in your Google Drive. On this device it is removed when you close this tab.' +
         (meta.dirty || meta.paused ? '\n\nWarning: some of your data is not in Google Drive. Choose Cancel and Sync first.' : ''))) { e.target.checked = true; return; }
     const old = user, keepMeta = meta;
-    writeArea(old, dataKey(old), null); writeArea(old, metaKey(old), null);
-    if (!on) { const all = knownAccounts(); delete all[old.sub]; writeJSON(ACCOUNTS_KEY, all); }
+    put(area(old), dataKey(old), null); put(area(old), metaKey(old), null);
+    if (!on) { const all = knownAccounts(); delete all[old.sub]; put(LS(), ACCOUNTS_KEY, all); }
     setUser(Object.assign({}, old, { remember: on }));
-    writeArea(user, dataKey(), db); setMeta(keepMeta);
+    put(area(user), dataKey(), db); setMeta(keepMeta);
     renderAccount();
     CFStats.event(on ? 'remember-on' : 'remember-off');
     toast(on ? 'This device keeps a copy now: it opens quickly and works offline.' : 'This device no longer keeps your data after the tab closes.');
@@ -1373,7 +1396,7 @@
     if (wipe && (meta.dirty || meta.paused) && !confirm('Some of your data is not in Google Drive and will be lost from this device. Sign out anyway?')) return;
     if (wipe && user.remember && !confirm(`Remove all of ${user.email}'s Cash Flow data from this device?`)) return;
     const email = user.email;
-    if (wipe) { writeArea(user, dataKey(), null); writeArea(user, metaKey(), null); const all = knownAccounts(); delete all[user.sub]; writeJSON(ACCOUNTS_KEY, all); }
+    if (wipe) { put(area(user), dataKey(), null); put(area(user), metaKey(), null); const all = knownAccounts(); delete all[user.sub]; put(LS(), ACCOUNTS_KEY, all); }
     sess = null; clearTimeout(syncTimer); setUser(null);
     db = fresh(); recompile();
     $('signOutDlg').close(); renderGate(); renderAccount();
@@ -1429,7 +1452,7 @@
         const u = await CFDrive.userInfo(s);
         if (u.sub === mv.old.sub) { moveBusy(false); return moveStep('pick', `That's ${u.email}, the account you're already using. Choose a different one.`); }
         const target = await CFDrive.find(s);
-        const onDevice = readArea(Object.assign({ remember: mv.old.remember }, u), dataKey(u));
+        const onDevice = get(area(Object.assign({ remember: mv.old.remember }, u)), dataKey(u));
         const warn = [target && `${u.email} already has Cash Flow data in its Google Drive (${fmtWhen(target.modified)}, ${target.txns} transactions).`,
           onDevice && onDevice.version === 2 && `${u.email} already has Cash Flow data on this device (${(onDevice.txns || []).length} transactions).`].filter(Boolean);
         if (warn.length && !confirm(`${warn.join('\n')}\n\nReplace it with the data you're moving?`)) { moveBusy(false); return moveStep('pick', 'Nothing was changed. Choose another account, or Cancel.'); }
@@ -1439,11 +1462,11 @@
         if (await CFDrive.download(s, f.id) !== text) throw new Error('The copy in the new Google Drive did not match. Nothing was changed on this device; please try again.');
         // switch this device over to the new account
         const rec = { sub: u.sub, email: u.email, name: u.name, given: u.given, remember: !!mv.old.remember };
-        writeArea(mv.old, dataKey(mv.old), null); writeArea(mv.old, metaKey(mv.old), null);
-        const all = knownAccounts(); delete all[mv.old.sub]; writeJSON(ACCOUNTS_KEY, all);
-        writeArea(rec, metaKey(rec), null);
+        put(area(mv.old), dataKey(mv.old), null); put(area(mv.old), metaKey(mv.old), null);
+        const all = knownAccounts(); delete all[mv.old.sub]; put(LS(), ACCOUNTS_KEY, all);
+        put(area(rec), metaKey(rec), null);
         setUser(rec); sess = s;
-        db = source; recompile(); writeArea(rec, dataKey(rec), db);
+        db = source; recompile(); put(area(rec), dataKey(rec), db);
         setMeta({ base: CFSync.fingerprint(source), remoteModified: f.modifiedTime, syncedAt: new Date().toISOString(), dirty: false, paused: false });
         Object.assign(view, { profile: db.profiles[0].id, acct: 'all', cat: '' });
         initFilters(false); renderAll();
@@ -1478,6 +1501,32 @@
     if (meta.dirty) scheduleSync();
     else { setTimeout(() => toast('Tap Sync to get the latest from your Google Drive.', 8000, { label: 'Sync', fn: () => syncNow(true) }), 600); }
   }
+
+  /* ================= contact support (opens the user's email app; ticket tracking is a future item) ================= */
+  const SUPPORT_EMAIL = String(((window.CF_CONFIG || {}).supportEmail) || '').trim();
+  function supportText() {
+    const dev = [standalone() ? 'installed app' : 'browser', /android/i.test(navigator.userAgent) ? 'Android' : /iphone|ipad|ipod/i.test(navigator.userAgent) ? 'iPhone/iPad' : /mac/i.test(navigator.platform) ? 'Mac' : /win/i.test(navigator.platform) ? 'Windows' : 'other'].join(', ');
+    const subject = `[Cash Flow] ${$('spTopic').value}`;
+    const body = [`Topic: ${$('spTopic').value}`, '', 'What happened:', $('spWhat').value.trim(), '',
+      'Steps to see it:', $('spSteps').value.trim() || '(not given)', '', '---', `App version: ${APP_VERSION}`, `Device: ${dev}`].join('\n');
+    return { subject, body };
+  }
+  $('supportBtn').onclick = () => { $('spOff').hidden = !!SUPPORT_EMAIL; $('spSend').disabled = !SUPPORT_EMAIL; openDlg('supportDlg'); };
+  $('supportForm').onsubmit = e => {
+    e.preventDefault();
+    if (!SUPPORT_EMAIL) return;
+    const { subject, body } = supportText();
+    location.href = `mailto:${encodeURIComponent(SUPPORT_EMAIL)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    CFStats.event('support-email-opened');
+    toast('Your email app should open with the message. Press Send there.', 8000);
+    $('supportDlg').close();
+  };
+  $('spCopy').onclick = async () => {
+    if (!$('spWhat').value.trim()) return $('spWhat').reportValidity();
+    const { subject, body } = supportText(), text = (SUPPORT_EMAIL ? `To: ${SUPPORT_EMAIL}\n` : '') + `Subject: ${subject}\n\n${body}`;
+    try { await navigator.clipboard.writeText(text); toast(SUPPORT_EMAIL ? `Copied. Paste it into an email to ${SUPPORT_EMAIL}.` : 'Copied.', 8000); }
+    catch (err) { toast('Could not copy. Select the text and copy it yourself.'); }
+  };
 
   /* ================= anonymous usage counts: Settings switch ================= */
   function renderStatsRow() {
@@ -1736,7 +1785,7 @@
     const r = addTransactions(data, acct, stmtId);
     if (r.added) db.statements.push({ id: stmtId, accountId: acct.id, fileName: 'Sample statement', added: new Date().toISOString(), count: r.added, from: r.from, to: r.to, check: Object.assign(FT.reconcile(data, 40000), { unparsed: [] }) });
     save(); initFilters(false); renderAll();
-    if (r.added) toast('Sample data loaded. Delete the "Sample savings" account in Settings when you\'re done.');
+    if (r.added) toast('Sample data loaded. Delete the "Sample savings" account in Profile when you\'re done.');
   }
   $('sampleBtn').onclick = loadSample;
 
@@ -1750,11 +1799,11 @@
     const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     const btn = $('installBtn'), hint = $('installHint');
     btn.hidden = !installEvt;
-    if (standalone()) hint.textContent = 'Cash Flow is installed on this device. ✓';
-    else if (location.protocol === 'file:') hint.textContent = 'To install it as an app, open Cash Flow from a web address (for example http://localhost or a hosted link) instead of a file. See README.md.';
-    else if (installEvt) hint.textContent = 'Install Cash Flow on this device to open it like a regular app, even offline.';
-    else if (ios) hint.textContent = 'On iPhone / iPad: tap the Share button in Safari, then "Add to Home Screen".';
-    else hint.textContent = 'Use your browser menu: "Install app" (Chrome / Edge), or "Add to Home screen" (Android).';
+    $('installCard').hidden = standalone(); // already installed: nothing to do
+    if (location.protocol === 'file:') hint.textContent = 'Open Cash Flow from its web address (not a file) to install it.';
+    else if (installEvt) hint.textContent = 'Open Cash Flow like a regular app, even offline.';
+    else if (ios) hint.textContent = 'In Safari, tap Share, then "Add to Home Screen".';
+    else hint.textContent = 'In your browser menu, choose "Install app" or "Add to Home screen".';
   }
   window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; renderInstall(); });
   window.addEventListener('appinstalled', () => { installEvt = null; renderInstall(); toast('Cash Flow installed.'); CFStats.event('app-installed'); });
@@ -1794,5 +1843,6 @@
   window.addEventListener('error', () => CFStats.once('error-js'));
   window.addEventListener('unhandledrejection', () => CFStats.once('error-js'));
   checkAdmin();
+  if (upgradedAtLoad && user) markDirty();
   save({ noSync: true }); // persists a migrated v1 store in the new format (skipped while nobody is signed in)
 })();

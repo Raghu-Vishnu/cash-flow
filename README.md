@@ -16,15 +16,19 @@ device. Nothing is uploaded, unless you choose to back up to your own Google Dri
 ## Using it
 0. **Sign in with Google** the first time you open Cash Flow on a device. Your data is saved in your own Google Drive and kept in step
    across devices. Tick **Remember this device** on your own phone or laptop to keep a copy there (opens instantly, works offline).
-1. **Settings → People & accounts:** add people (you, family) and their bank accounts.
+1. **Profile** (tap your initial, top right) → **People & bank accounts:** add people (you, family) and their bank accounts.
 2. **Upload** (the button at the top of the left rail on desktop, the round button at the bottom-right on phones): pick the account and drop CSV/Excel/PDF statements.
    Every file is checked against the account number, and its running balance is verified so missing transactions are flagged.
 3. **Dashboard:** year & month, last 30 days / 3 / 6 months, financial year, or custom dates. Tap a bar or a category to drill in.
 4. **Transactions:** tap any transaction to change its category (remembered for that merchant) or delete it (with undo).
-5. **Settings → Google account & Drive:** sync status and **Sync now**, Remember this device, Delete Drive copy,
-   Change Google account (your data moves with you), Sign out. The ☁ button in the header shows the sync state.
-6. **Settings → Your data → Download transactions:** CSV, Excel or a PDF statement for any person, account and period.
-7. **Settings → Statement diagnostics:** creates an anonymised report if a statement isn't read correctly.
+5. **Profile:** sync status and **Sync now**, Remember this device, **Help & support** (contact support, statement
+   diagnostics, privacy), Change Google account, Delete Drive copy, Sign out. The ☁ button in the header shows the sync state.
+6. **Settings:** appearance, categories and merchant rules (collapsed), **Download transactions** (CSV, Excel or PDF for any
+   person, account and period), usage counts switch, delete all data.
+7. **Investments** (Stocks, Mutual funds / SIP, Gold, Other investments) count as **Invested**, not as spending.
+   Money coming back (redemptions, maturity) goes to **From investments** and reduces Invested.
+   Dashboard: Income · Expenses · Invested · Left over (= income − expenses − invested).
+8. **Profile → Help & support → Statement not read correctly?** creates an anonymised report if a statement isn't read correctly.
 
 ## Google sign-in & Drive (one-time setup)
 Sign-in and backup run in the browser. There is no Cash Flow server or account database. Scopes: `openid email profile`
@@ -88,6 +92,11 @@ Settings. It also starts off when the browser sends Do Not Track or Global Priva
 Insights shows visits, app opens per day, new devices, sign-ins, installed app vs browser, screens, imports, downloads,
 account and Drive actions, sync health, problems, app versions, operating systems and browsers. When you change
 `APP_VERSION` in `app.js`, keep it in step with `VERSION` in `sw.js`.
+
+## Contact support (optional)
+Set `SUPPORT_EMAIL` (your support Google Group address) in `.env` and as a GitHub repository **variable**. **Profile → Help &
+support → Contact support** then opens the user's email app with a template (topic, what happened, steps, app version,
+device type) addressed to it. Make sure the group accepts email from outside the organisation. Ticket tracking is a future item.
 
 ## For developers
 - `parser.js`: statement reading (CSV/Excel/PDF with layout detection), verification, categorisation, anonymiser

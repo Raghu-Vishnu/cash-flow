@@ -333,10 +333,16 @@
   const DEFAULT_CATEGORIES = [
     { name: 'Self Transfer', type: 'any', keywords: ['self transfer', 'own account', 'to self', 'from self', 'sweep'] },
     { name: 'Salary', type: 'credit', keywords: ['salary', 'sal', 'payroll', 'stipend'] },
+    // money coming back from investments (redemptions, maturity, payouts): not income, it reduces "Invested"
+    { name: 'From investments', type: 'credit', invest: true, keywords: ['redemption', 'redeem', 'maturity', 'zerodha', 'groww', 'upstox', 'kuvera', 'mutual fund', 'safegold', 'augmont', 'sgb'] },
     { name: 'Interest & Dividends', type: 'credit', keywords: ['interest', 'int pd', 'int cr', 'dividend', 'div'] },
     { name: 'Refunds & Cashback', type: 'credit', keywords: ['refund', 'cashback', 'reversal', 'reversed', 'chargeback'] },
     { name: 'Other Income', type: 'credit', keywords: [], fallback: true },
-    { name: 'Investments', type: 'debit', keywords: ['sip', 'mutual fund', 'mf', 'zerodha', 'groww', 'upstox', 'kuvera', 'angel one', 'nps', 'ppf', 'recurring deposit', 'rd', 'smallcase', 'indmoney', 'paytm money', 'bse ltd', 'nse clearing'] },
+    // investments: money set aside, not spent (counted as "Invested", not as expenses)
+    { name: 'Mutual funds / SIP', type: 'debit', invest: true, keywords: ['sip', 'mutual fund', 'mf', 'groww', 'kuvera', 'paytm money', 'et money', 'cams', 'kfintech', 'bse star', 'scripbox', 'coin'] },
+    { name: 'Stocks', type: 'debit', invest: true, keywords: ['zerodha', 'kite', 'upstox', 'angel one', 'angelone', 'angel broking', 'icicidirect', 'icici direct', 'hdfc sec', 'kotak sec', '5paisa', 'dhan', 'motilal', 'sharekhan', 'iifl', 'nse clearing', 'indian clearing', 'bse ltd', 'smallcase', 'indmoney', 'demat'] },
+    { name: 'Gold', type: 'debit', invest: true, keywords: ['safegold', 'augmont', 'mmtc', 'digital gold', 'digi gold', 'digigold', 'sgb', 'sovereign gold', 'gold bond', 'gold scheme', 'golden harvest', 'jar app'] },
+    { name: 'Other investments', type: 'debit', invest: true, keywords: ['nps', 'ppf', 'recurring deposit', 'rd', 'fd booking', 'term deposit', 'investment'] },
     { name: 'Insurance', type: 'debit', keywords: ['lic', 'insurance', 'policy', 'premium', 'acko', 'hdfc life', 'icici pru', 'max life', 'star health'] },
     { name: 'Food & Dining', type: 'debit', keywords: ['swiggy', 'zomato', 'restaurant', 'cafe', 'coffee', 'starbucks', 'domino', 'pizza', 'kfc', 'mcdonald', 'burger', 'eatsure', 'biryani', 'bakery', 'tea', 'chai'] },
     { name: 'Groceries', type: 'debit', keywords: ['bigbasket', 'blinkit', 'zepto', 'instamart', 'dmart', 'grofers', 'more retail', 'reliance fresh', 'spencer', 'grocery', 'supermarket', 'kirana', 'jiomart', 'milk', 'dairy'] },

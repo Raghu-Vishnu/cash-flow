@@ -21,7 +21,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0..1,0&icon_names=account_balance,account_circle,add,arrow_downward,arrow_drop_down,arrow_upward,atm,backup,calendar_month,category,check_circle,close,cloud,cloud_done,cloud_download,cloud_off,cloud_sync,cloud_upload,credit_card,dark_mode,date_range,delete,description,directions_car,download,edit,error,event,group,health_and_safety,home,info,insights,install_mobile,key,label,light_mode,local_grocery_store,lock,logout,medical_services,movie,palette,payments,percent,person,picture_as_pdf,qr_code_2,receipt,receipt_long,refresh,replay,request_quote,restaurant,savings,school,search,settings,shopping_bag,space_dashboard,swap_horiz,sync_alt,sync_problem,table_view,trending_up,troubleshoot,upload_file,warning&display=block">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0..1,0&icon_names=account_balance,account_circle,add,arrow_downward,arrow_drop_down,arrow_upward,atm,backup,calendar_month,candlestick_chart,category,check_circle,chevron_right,close,cloud,cloud_done,cloud_download,cloud_off,cloud_sync,cloud_upload,content_copy,credit_card,currency_exchange,dark_mode,date_range,delete,description,diamond,directions_car,download,edit,error,event,expand_more,group,health_and_safety,home,info,insights,install_mobile,key,label,light_mode,local_grocery_store,lock,logout,mail,medical_services,movie,palette,payments,percent,person,picture_as_pdf,pie_chart,qr_code_2,receipt,receipt_long,refresh,replay,request_quote,restaurant,savings,school,search,settings,shield,shopping_bag,space_dashboard,support_agent,swap_horiz,sync_alt,sync_problem,table_view,trending_up,troubleshoot,upload_file,warning&display=block">
 <link rel="stylesheet" href="styles.css">
 <script src="vendor/chart.umd.min.js"></script>
 <script src="vendor/xlsx.full.min.js"></script>
@@ -36,15 +36,15 @@
     <p class="gate-sub">Smart Finance Manager</p>
     <p class="gate-tag">Track your income and expenses from your own bank statements.</p>
     <label class="check gate-remember"><input type="checkbox" id="gateRemember"> Remember this device</label>
-    <p class="gate-note">Keeps a copy here so the app opens quickly and works offline. Leave it off on shared or public computers.</p>
+    <p class="gate-note">Keeps a copy here for fast, offline use. Leave it off on shared computers.</p>
     <button class="gsi-btn" id="gateSignIn" disabled><svg class="g-logo" viewBox="0 0 48 48" width="20" height="20" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg><span>Sign in with Google</span></button>
     <p class="gate-msg" id="gateMsg" aria-live="polite">Loading Google sign-in…</p>
     <ul class="gate-points">
-      <li><span class="ms" aria-hidden="true">lock</span><span>Your data is saved in your own Google Drive. Cash Flow has no server and never sees it.</span></li>
-      <li><span class="ms" aria-hidden="true">group</span><span>Everyone signs in with their own Google account and sees only their own data.</span></li>
-      <li><span class="ms" aria-hidden="true">cloud_sync</span><span>Use it on your phone and computer: changes stay in step through your Drive.</span></li>
+      <li><span class="ms" aria-hidden="true">lock</span><span>Your data stays in your own Google Drive. There is no Cash Flow server.</span></li>
+      <li><span class="ms" aria-hidden="true">group</span><span>Each person signs in and sees only their own data.</span></li>
+      <li><span class="ms" aria-hidden="true">cloud_sync</span><span>Works on your phone and computer, kept in sync.</span></li>
     </ul>
-    <p class="gate-note" id="gateStats" hidden>Anonymous usage counts (no personal or financial data) help improve the app. You can turn them off in Settings.</p>
+    <p class="gate-note" id="gateStats" hidden>Anonymous usage counts help improve the app. Turn them off any time in Settings.</p>
     <a class="gate-link" href="privacy.html">Privacy policy</a>
   </div>
 </div>
@@ -129,8 +129,8 @@
         <div class="kpis">
           <div class="kpi"><span class="k-ic inc"><span class="ms">arrow_downward</span></span><span class="k-label">Income</span><span class="k-val" id="kIncome"></span><span class="k-sub" id="kIncomeSub"></span></div>
           <div class="kpi"><span class="k-ic exp"><span class="ms">arrow_upward</span></span><span class="k-label">Expenses</span><span class="k-val" id="kExpense"></span><span class="k-sub" id="kExpenseSub"></span></div>
-          <div class="kpi"><span class="k-ic net"><span class="ms">savings</span></span><span class="k-label">Net savings</span><span class="k-val" id="kNet"></span><span class="k-sub" id="kNetSub"></span></div>
-          <div class="kpi"><span class="k-ic rate"><span class="ms">percent</span></span><span class="k-label">Savings rate</span><span class="k-val" id="kRate"></span><span class="k-sub" id="kRateSub"></span></div>
+          <div class="kpi"><span class="k-ic inv"><span class="ms">trending_up</span></span><span class="k-label">Invested</span><span class="k-val" id="kInvest"></span><span class="k-sub" id="kInvestSub"></span></div>
+          <div class="kpi"><span class="k-ic net"><span class="ms">savings</span></span><span class="k-label">Left over</span><span class="k-val" id="kNet"></span><span class="k-sub" id="kNetSub"></span></div>
         </div>
 
         <div class="card">
@@ -154,6 +154,11 @@
             <div class="card-head mt"><h2>Top places you paid</h2></div>
             <div id="topMerchants" class="bars"></div>
           </div>
+          <div class="card" id="investCard">
+            <div class="card-head"><h2>Where you invested</h2></div>
+            <p class="hint" id="investNote"></p>
+            <div id="invCats" class="bars"></div>
+          </div>
         </div>
       </div>
     </section>
@@ -165,9 +170,10 @@
           <label class="search"><span class="ms">search</span><input type="search" id="search" placeholder="Search description or merchant" aria-label="Search transactions"></label>
           <div class="tx-filters">
             <label class="chip"><select id="typeSel" aria-label="Type">
-              <option value="">Income &amp; expenses</option>
-              <option value="credit">Income only</option>
-              <option value="debit">Expenses only</option>
+              <option value="">All types</option>
+              <option value="inc">Income</option>
+              <option value="exp">Expenses</option>
+              <option value="invest">Investments</option>
             </select><span class="ms chev">arrow_drop_down</span></label>
             <label class="chip"><span class="ms">category</span><select id="catSel" aria-label="Category"></select><span class="ms chev">arrow_drop_down</span></label>
             <button class="btn tonal" id="addTxBtn"><span class="ms">add</span>Add</button>
@@ -182,92 +188,112 @@
       </div>
     </section>
 
-    <!-- ============ SETTINGS ============ -->
+    <!-- ============ SETTINGS (app preferences) ============ -->
     <section id="settings" hidden aria-labelledby="pageTitle">
+      <button class="card link-card" id="toProfile">
+        <span class="who-initial" id="plInitial" aria-hidden="true"><span class="ms">person</span></span>
+        <span class="who-text"><b id="plName">Profile</b><span id="plSub">Account, people, bank accounts, help</span></span>
+        <span class="ms" aria-hidden="true">chevron_right</span>
+      </button>
+
       <div class="card">
-        <div class="card-head"><h2><span class="ms">group</span>People &amp; accounts</h2><button class="btn tonal" id="addPersonBtn"><span class="ms">add</span>Person</button></div>
-        <p class="hint">Keep separate finances for yourself, family or friends. Statements are checked against the account number so they can't end up in the wrong account.</p>
+        <div class="card-head"><h2><span class="ms">palette</span>Appearance</h2></div>
+        <div class="seg" role="radiogroup" aria-label="Theme">
+          <label><input type="radio" name="theme" value="system"><span class="ms">check_circle</span>System</label>
+          <label><input type="radio" name="theme" value="light"><span class="ms">check_circle</span>Light</label>
+          <label><input type="radio" name="theme" value="dark"><span class="ms">check_circle</span>Dark</label>
+        </div>
+      </div>
+
+      <details class="card fold" id="catFold">
+        <summary><h2><span class="ms">category</span>Categories</h2><span class="fold-sub" id="catCount"></span><span class="ms fold-ic" aria-hidden="true">expand_more</span></summary>
+        <p class="hint">A transaction goes into the first category (top to bottom) whose keywords appear in its description. Use ↑ ↓ to change the order.</p>
+        <div class="cat-cols">
+          <div><h3>Expenses</h3><div id="catDebit" class="cat-list"></div></div>
+          <div>
+            <div id="catInvestWrap"><h3>Investments</h3><div id="catInvest" class="cat-list"></div></div>
+            <h3 class="mt">Income</h3><div id="catCredit" class="cat-list"></div>
+            <h3 class="mt">Not counted in totals</h3><div id="catAny" class="cat-list"></div>
+          </div>
+        </div>
+        <form id="addCatForm" class="add-cat">
+          <input id="newCatName" placeholder="New category" required maxlength="40" aria-label="New category name">
+          <select id="newCatType" aria-label="Type"><option value="debit">Expense</option><option value="invest">Investment</option><option value="credit">Income</option></select>
+          <input id="newCatKw" placeholder="Keywords, e.g. gym, cult.fit" aria-label="Keywords">
+          <button class="btn primary"><span class="ms">add</span>Add</button>
+        </form>
+        <div class="row-gap left fold-foot"><button class="btn tonal" id="reapplyBtn">Re-apply to existing transactions</button></div>
+      </details>
+
+      <details class="card fold" id="ruleFold">
+        <summary><h2><span class="ms">label</span>Merchant rules</h2><span class="fold-sub" id="ruleCount"></span><span class="ms fold-ic" aria-hidden="true">expand_more</span></summary>
+        <p class="hint">Saved when you change a transaction's category. They take priority over keywords.</p>
+        <div id="ruleList"></div>
+      </details>
+
+      <div class="card">
+        <div class="card-head"><h2><span class="ms">download</span>Your data</h2></div>
+        <p class="hint">Download any person, account and period as CSV, Excel or a PDF statement.</p>
+        <div class="row-gap left"><button class="btn tonal" id="downloadBtn"><span class="ms">download</span>Download transactions</button></div>
+        <label class="switch-row stats-row" id="statsRow" hidden>
+          <span class="switch-text"><b>Share anonymous usage counts</b><span>Helps improve the app. No personal or financial data. <a href="privacy.html#usage">What's counted</a></span></span>
+          <input type="checkbox" role="switch" id="statsChk">
+        </label>
+        <div class="danger-zone"><button class="btn danger" id="clearBtn"><span class="ms">delete</span>Delete all data</button></div>
+      </div>
+
+      <div class="card" id="installCard">
+        <div class="card-head"><h2><span class="ms">install_mobile</span>Install app</h2></div>
+        <p class="hint" id="installHint">Open Cash Flow like a regular app, even offline.</p>
+        <button class="btn primary" id="installBtn" hidden><span class="ms">download</span>Install</button>
+      </div>
+      <p class="footnote">Cash Flow <span id="verLabel"></span> · <a href="privacy.html">Privacy policy</a></p>
+    </section>
+
+    <!-- ============ PROFILE (account, people, help) ============ -->
+    <section id="profilePage" hidden aria-labelledby="pageTitle">
+      <div class="card" id="driveCard">
+        <div class="who big" id="whoBox" hidden><span class="who-initial" id="whoInitial" aria-hidden="true"></span><div class="who-text"><b id="whoName"></b><span id="whoEmail"></span></div></div>
+        <p class="hint" id="driveOff" hidden>Google sign-in isn't set up for this copy of the app, so your data stays in this browser only.</p>
+        <div class="sync-line" id="syncLine" hidden><span class="ms" id="syncLineIc" aria-hidden="true">cloud_done</span><span id="driveStatus" aria-live="polite"></span></div>
+        <div class="row-gap left">
+          <button class="btn tonal" id="syncNowBtn"><span class="ms">cloud_sync</span>Sync now</button>
+          <button class="btn" id="driveOnBtn" hidden><span class="ms">cloud_sync</span>Turn Drive sync back on</button>
+        </div>
+        <label class="switch-row" id="rememberRow" hidden>
+          <span class="switch-text"><b>Remember this device</b><span>Keeps a copy here for fast, offline use. Turn off on shared computers.</span></span>
+          <input type="checkbox" role="switch" id="rememberChk">
+        </label>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2><span class="ms">group</span>People &amp; bank accounts</h2><button class="btn tonal" id="addPersonBtn"><span class="ms">add</span>Person</button></div>
+        <p class="hint">Track yourself, family or friends separately. Each statement is checked against its account number.</p>
         <div id="peopleList"></div>
       </div>
 
       <div class="card">
-        <div class="card-head"><h2><span class="ms">category</span>Categories</h2><button class="btn tonal" id="reapplyBtn">Re-apply</button></div>
-        <p class="hint">Transactions go to the <b>first</b> category (top to bottom) whose keywords appear in the bank description. Separate keywords with commas; ↑ ↓ change priority. "Re-apply" updates existing transactions.</p>
-        <div class="cat-cols">
-          <div><h3>Expenses</h3><div id="catDebit" class="cat-list"></div></div>
-          <div><h3>Income</h3><div id="catCredit" class="cat-list"></div>
-            <h3 class="mt">Not counted in totals</h3><div id="catAny" class="cat-list"></div></div>
-        </div>
-        <form id="addCatForm" class="add-cat">
-          <input id="newCatName" placeholder="New category name" required maxlength="40" aria-label="New category name">
-          <select id="newCatType" aria-label="Type"><option value="debit">Expense</option><option value="credit">Income</option></select>
-          <input id="newCatKw" placeholder="Keywords, e.g. gym, cult.fit" aria-label="Keywords">
-          <button class="btn primary"><span class="ms">add</span>Add category</button>
-        </form>
-      </div>
-
-      <div class="card">
-        <div class="card-head"><h2><span class="ms">label</span>Merchant rules</h2></div>
-        <p class="hint">Created when you change a transaction's category. They override keywords.</p>
-        <div id="ruleList"></div>
-      </div>
-
-      <div class="grid2">
-        <div class="card">
-          <div class="card-head"><h2><span class="ms">palette</span>Appearance</h2></div>
-          <div class="seg" role="radiogroup" aria-label="Theme">
-            <label><input type="radio" name="theme" value="system"><span class="ms">check_circle</span>System</label>
-            <label><input type="radio" name="theme" value="light"><span class="ms">check_circle</span>Light</label>
-            <label><input type="radio" name="theme" value="dark"><span class="ms">check_circle</span>Dark</label>
-          </div>
-        </div>
-        <div class="card" id="installCard">
-          <div class="card-head"><h2><span class="ms">install_mobile</span>Install app</h2></div>
-          <p class="hint" id="installHint">Install Cash Flow on your phone or computer to open it like a regular app, even offline.</p>
-          <button class="btn primary" id="installBtn" hidden><span class="ms">download</span>Install</button>
+        <div class="card-head"><h2><span class="ms">support_agent</span>Help &amp; support</h2></div>
+        <div class="menu">
+          <button class="menu-row" id="supportBtn"><span class="ms">mail</span><span class="menu-text"><b>Contact support</b><small>Report a problem or ask a question</small></span><span class="ms chev" aria-hidden="true">chevron_right</span></button>
+          <button class="menu-row" id="diagBtn"><span class="ms">troubleshoot</span><span class="menu-text"><b>Statement not read correctly?</b><small>Create an anonymised report to send us</small></span><span class="ms chev" aria-hidden="true">chevron_right</span></button>
+          <a class="menu-row" href="privacy.html"><span class="ms">shield</span><span class="menu-text"><b>Privacy policy</b><small>What's stored, where, and what's counted</small></span><span class="ms chev" aria-hidden="true">chevron_right</span></a>
         </div>
       </div>
 
-      <div class="card">
-        <div class="card-head"><h2><span class="ms">troubleshoot</span>Statement diagnostics</h2></div>
-        <p class="hint">Something missing or wrong after an import? Create an <b>anonymised</b> report of a statement to share for troubleshooting. Names, account, reference and phone numbers, UPI IDs and birth dates are replaced; dates and amounts are kept. It runs on this device only, and nothing is imported or uploaded.</p>
-        <button class="btn tonal" id="diagBtn">Create anonymised report…</button>
-      </div>
-
-      <div class="card" id="driveCard">
-        <div class="card-head"><h2><span class="ms">account_circle</span>Google account &amp; Drive</h2></div>
-        <div class="who" id="whoBox" hidden><span class="who-initial" id="whoInitial" aria-hidden="true"></span><div class="who-text"><b id="whoName"></b><span id="whoEmail"></span></div></div>
-        <p class="hint">Your data is saved in <b>your own</b> Google Drive and kept in step across your devices. It goes straight between this browser and your Drive: Cash Flow has no server and never sees your data. The app can only see the one file it creates, not the rest of your Drive.</p>
-        <p class="hint" id="driveOff" hidden>Google sign-in is not set up for this copy of the app (see README.md), so your data is kept only in this browser.</p>
-        <div class="sync-line" id="syncLine" hidden><span class="ms" id="syncLineIc" aria-hidden="true">cloud_done</span><span id="driveStatus" aria-live="polite"></span></div>
-        <label class="switch-row" id="rememberRow" hidden>
-          <span class="switch-text"><b>Remember this device</b><span>Keep a copy here so the app opens quickly and works offline. Turn off on shared computers: data is then removed when the tab closes.</span></span>
-          <input type="checkbox" role="switch" id="rememberChk">
-        </label>
-        <div class="row-gap left">
-          <button class="btn tonal" id="syncNowBtn"><span class="ms">cloud_sync</span>Sync now</button>
-          <button class="btn" id="driveOnBtn" hidden><span class="ms">cloud_sync</span>Turn Drive sync back on</button>
-          <button class="btn danger" id="driveDeleteBtn">Delete Drive copy</button>
-        </div>
-        <div class="row-gap left acct-actions" id="acctActions">
-          <button class="btn text" id="changeAcctBtn"><span class="ms">swap_horiz</span>Change Google account</button>
-          <button class="btn text" id="signOutBtn"><span class="ms">logout</span>Sign out</button>
+      <div class="card" id="acctActions">
+        <div class="menu">
+          <button class="menu-row" id="changeAcctBtn"><span class="ms">swap_horiz</span><span class="menu-text"><b>Change Google account</b><small>Move your data to another Google account</small></span><span class="ms chev" aria-hidden="true">chevron_right</span></button>
+          <button class="menu-row danger" id="driveDeleteBtn"><span class="ms">cloud_off</span><span class="menu-text"><b>Delete Drive copy</b><small>Remove Cash Flow's file from your Google Drive</small></span><span class="ms chev" aria-hidden="true">chevron_right</span></button>
+          <button class="menu-row" id="signOutBtn"><span class="ms">logout</span><span class="menu-text"><b>Sign out</b></span><span class="ms chev" aria-hidden="true">chevron_right</span></button>
         </div>
       </div>
 
-      <div class="card">
-        <div class="card-head"><h2><span class="ms">download</span>Your data</h2></div>
-        <p class="hint">Download transactions for any person, account and period as CSV, Excel or a PDF statement.</p>
-        <div class="row-gap left">
-          <button class="btn tonal" id="downloadBtn"><span class="ms">download</span>Download transactions</button>
-          <button class="btn danger" id="clearBtn">Delete all data</button>
-        </div>
-        <label class="switch-row stats-row" id="statsRow" hidden>
-          <span class="switch-text"><b>Share anonymous usage counts</b><span>Counts like "a PDF was downloaded" help improve Cash Flow. Never your name, email, amounts, transactions or account details. <a href="privacy.html#usage">What's counted</a></span></span>
-          <input type="checkbox" role="switch" id="statsChk">
-        </label>
-      </div>
-      <p class="footnote">Cash Flow · your data stays in your own Google Drive and on the devices you choose · <a href="privacy.html">Privacy policy</a></p>
+      <button class="card link-card" id="toSettings">
+        <span class="who-initial" aria-hidden="true"><span class="ms">settings</span></span>
+        <span class="who-text"><b>App settings</b><span>Appearance, categories, downloads</span></span>
+        <span class="ms" aria-hidden="true">chevron_right</span>
+      </button>
     </section>
 
     <!-- Admin: product insights (anonymous counts from GoatCounter). Only shown to admin accounts. -->
@@ -279,10 +305,10 @@
             <button class="icon-btn" id="inRefresh" aria-label="Refresh" title="Refresh"><span class="ms">refresh</span></button>
           </div>
         </div>
-        <p class="hint">Anonymous usage counts from GoatCounter. The app never collects names, emails, amounts, transactions, merchants or account details, so none of that can appear here. Counts only include people who haven't turned usage counts off.</p>
+        <p class="hint">Anonymous counts from GoatCounter: no names, emails, amounts or account details. People who turned counting off aren't included.</p>
         <div id="inKeyBox" hidden>
           <label class="field">GoatCounter API key <input type="password" id="inKey" autocomplete="off" spellcheck="false" placeholder="Paste your read-only API key"></label>
-          <p class="hint">Create it at <b id="inKeyWhere">your GoatCounter site</b> → your username (top right) → <b>API</b> → <b>New API key</b>, allowing only <b>Read statistics</b> for this site. It's saved on this device and in a private file in <b>your own</b> Google Drive, so your other devices get it automatically. It's never in the code or on the website.</p>
+          <p class="hint">At <b id="inKeyWhere">your GoatCounter site</b>: your username → <b>API</b> → <b>New API key</b>, with only <b>Read statistics</b>. Saved on this device and privately in your Google Drive, so your other devices get it too.</p>
           <div class="row-gap left">
             <button class="btn primary" id="inKeySave"><span class="ms">key</span>Save key</button>
             <button class="btn" id="inKeyDrive"><span class="ms">cloud_download</span>Get my key from Google Drive</button>
@@ -342,7 +368,7 @@
     <p id="upFiles">Drop files here, or</p>
     <button type="button" class="btn tonal" id="upChoose">Choose files</button>
   </div>
-  <p class="hint">CSV, Excel or PDF. Each file's account number is checked, and its running balance is verified so you'll know if anything was missed.</p>
+  <p class="hint">CSV, Excel or PDF. We check the account number and the running balance, so you'll know if anything is missing.</p>
   <div class="dlg-actions">
     <button type="button" class="btn text" data-close>Cancel</button>
     <button type="button" class="btn primary" id="upGo" disabled>Import</button>
@@ -435,6 +461,29 @@
   </div>
 </dialog>
 
+<!-- Contact support -->
+<dialog id="supportDlg" class="dlg">
+  <form id="supportForm">
+    <h2>Contact support</h2>
+    <label class="field">What's it about? <select id="spTopic">
+      <option>Something isn't working</option>
+      <option>A statement wasn't read correctly</option>
+      <option>Sign-in or sync problem</option>
+      <option>Question</option>
+      <option>Suggestion</option>
+    </select></label>
+    <label class="field">What happened? <textarea id="spWhat" rows="4" required maxlength="2000" placeholder="Describe the problem or question"></textarea></label>
+    <label class="field">Steps to see it (optional) <textarea id="spSteps" rows="3" maxlength="1000" placeholder="1. Open … 2. Tap … 3. See …"></textarea></label>
+    <p class="hint">Opens your email app with this message. The app version and device type are added. Please don't include account numbers or passwords.</p>
+    <p class="hint" id="spOff" hidden>Support email isn't set up for this copy of the app.</p>
+    <div class="dlg-actions">
+      <button type="button" class="btn text" data-close>Cancel</button>
+      <button type="button" class="btn" id="spCopy"><span class="ms">content_copy</span>Copy</button>
+      <button class="btn primary" id="spSend"><span class="ms">mail</span>Open email</button>
+    </div>
+  </form>
+</dialog>
+
 <!-- Download transactions -->
 <dialog id="exportDlg" class="dlg">
   <h2>Download transactions</h2>
@@ -460,7 +509,7 @@
 <dialog id="diagDlg" class="dlg wide">
   <h2>Anonymised report</h2>
   <ul id="diagSummary" class="diag-sum"></ul>
-  <p class="hint">Please read it through before sharing. Search it for your name or account number to double-check.</p>
+  <p class="hint">Read it before sharing, and check that your name and account number aren't in it.</p>
   <textarea id="diagText" class="diag-text" readonly spellcheck="false" aria-label="Anonymised report"></textarea>
   <div class="dlg-actions">
     <button type="button" class="btn text" data-close>Close</button>
