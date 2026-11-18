@@ -100,6 +100,24 @@ window.CFDrive = (function () {
     return (await api(s, loc, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: text })).json();
   }
 
+  /* Admin-only private settings (the GoatCounter read key for the Insights page), kept in the admin's own Drive
+     so it follows them to every device without ever being published. A separate file from the Cash Flow data. */
+  const ADMIN_TAG = 'cashflowAdmin', ADMIN_NAME = 'Cash Flow admin settings.json';
+  async function findAdmin(s) {
+    const q = encodeURIComponent(`appProperties has { key='${ADMIN_TAG}' and value='1' } and trashed=false`);
+    const r = await api(s, `${API}/files?q=${q}&orderBy=modifiedTime%20desc&pageSize=1&spaces=drive&fields=files(id,modifiedTime)`);
+    const f = ((await r.json()).files || [])[0];
+    return f ? { id: f.id, modified: f.modifiedTime } : null;
+  }
+  async function saveAdmin(s, text, existingId) {
+    const meta = { name: ADMIN_NAME, appProperties: { [ADMIN_TAG]: '1' } };
+    if (!existingId) Object.assign(meta, { mimeType: 'application/json', description: 'Private settings for the Cash Flow Insights page (admin only). Keep this file private; do not share it.' });
+    const b = 'cashflow' + Math.random().toString(36).slice(2);
+    const body = `--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${b}\r\nContent-Type: application/json\r\n\r\n${text}\r\n--${b}--`;
+    const path = existingId ? `${UPLOAD}/files/${encodeURIComponent(existingId)}` : `${UPLOAD}/files`;
+    return (await api(s, `${path}?uploadType=multipart&fields=id,modifiedTime`, { method: existingId ? 'PATCH' : 'POST', headers: { 'Content-Type': `multipart/related; boundary=${b}` }, body })).json();
+  }
+
   async function download(s, id) { return (await api(s, `${API}/files/${encodeURIComponent(id)}?alt=media`)).text(); }
 
   /** Move the backup to the Drive Bin (recoverable there for 30 days). Never touches other files. */
@@ -107,5 +125,5 @@ window.CFDrive = (function () {
     await api(s, `${API}/files/${encodeURIComponent(id)}?fields=id`, { method: 'PATCH', headers: { 'Content-Type': 'application/json; charset=UTF-8' }, body: JSON.stringify({ trashed: true }) });
   }
 
-  return { configured, preload, signIn, valid, userInfo, find, save, download, trash, FILE_NAME };
+  return { configured, preload, signIn, valid, userInfo, find, save, download, trash, findAdmin, saveAdmin, FILE_NAME };
 })();

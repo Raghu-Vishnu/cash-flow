@@ -21,7 +21,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0..1,0&icon_names=account_balance,account_circle,add,arrow_downward,arrow_drop_down,arrow_upward,atm,backup,calendar_month,category,check_circle,close,cloud,cloud_done,cloud_off,cloud_sync,cloud_upload,credit_card,dark_mode,date_range,delete,description,directions_car,download,edit,error,event,group,health_and_safety,home,info,insights,install_mobile,key,label,light_mode,local_grocery_store,lock,logout,medical_services,movie,palette,payments,percent,person,picture_as_pdf,qr_code_2,receipt,receipt_long,refresh,replay,request_quote,restaurant,savings,school,search,settings,shopping_bag,space_dashboard,swap_horiz,sync_alt,sync_problem,table_view,trending_up,troubleshoot,upload_file,warning&display=block">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0..1,0&icon_names=account_balance,account_circle,add,arrow_downward,arrow_drop_down,arrow_upward,atm,backup,calendar_month,category,check_circle,close,cloud,cloud_done,cloud_download,cloud_off,cloud_sync,cloud_upload,credit_card,dark_mode,date_range,delete,description,directions_car,download,edit,error,event,group,health_and_safety,home,info,insights,install_mobile,key,label,light_mode,local_grocery_store,lock,logout,medical_services,movie,palette,payments,percent,person,picture_as_pdf,qr_code_2,receipt,receipt_long,refresh,replay,request_quote,restaurant,savings,school,search,settings,shopping_bag,space_dashboard,swap_horiz,sync_alt,sync_problem,table_view,trending_up,troubleshoot,upload_file,warning&display=block">
 <link rel="stylesheet" href="styles.css">
 <script src="vendor/chart.umd.min.js"></script>
 <script src="vendor/xlsx.full.min.js"></script>
@@ -282,8 +282,11 @@
         <p class="hint">Anonymous usage counts from GoatCounter. The app never collects names, emails, amounts, transactions, merchants or account details, so none of that can appear here. Counts only include people who haven't turned usage counts off.</p>
         <div id="inKeyBox" hidden>
           <label class="field">GoatCounter API key <input type="password" id="inKey" autocomplete="off" spellcheck="false" placeholder="Paste your read-only API key"></label>
-          <p class="hint">Create it at <b id="inKeyWhere">your GoatCounter site</b> → your username (top right) → <b>API</b> → <b>New API key</b>, allowing only <b>Read statistics</b>. It's saved only on this device, never in the code or in Drive.</p>
-          <div class="row-gap left"><button class="btn primary" id="inKeySave"><span class="ms">key</span>Save key on this device</button></div>
+          <p class="hint">Create it at <b id="inKeyWhere">your GoatCounter site</b> → your username (top right) → <b>API</b> → <b>New API key</b>, allowing only <b>Read statistics</b> for this site. It's saved on this device and in a private file in <b>your own</b> Google Drive, so your other devices get it automatically. It's never in the code or on the website.</p>
+          <div class="row-gap left">
+            <button class="btn primary" id="inKeySave"><span class="ms">key</span>Save key</button>
+            <button class="btn" id="inKeyDrive"><span class="ms">cloud_download</span>Get my key from Google Drive</button>
+          </div>
         </div>
         <p class="sync-line in-status" id="inStatus" hidden></p>
       </div>
@@ -305,7 +308,7 @@
           <div class="card"><div class="card-head"><h2>Operating systems</h2></div><div id="inSystems" class="bars"></div></div>
           <div class="card"><div class="card-head"><h2>Browsers</h2></div><div id="inBrowsers" class="bars"></div></div>
         </div>
-        <div class="row-gap left in-foot"><button class="btn text" id="inKeyForget"><span class="ms">key</span>Forget API key on this device</button></div>
+        <div class="row-gap left in-foot"><button class="btn text" id="inKeyForget"><span class="ms">key</span>Remove API key</button></div>
       </div>
     </section>
   </main>

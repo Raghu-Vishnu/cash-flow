@@ -81,7 +81,9 @@ Settings. It also starts off when the browser sends Do Not Track or Global Priva
 4. Set `ADMIN_EMAILS` (your Gmail; comma-separated for several) in `.env` and as a GitHub **repository secret**.
    Only SHA-256 fingerprints of these go into `config.js`, so the published site never shows the addresses.
 5. Push. Sign in with an admin Gmail: an **Insights** tab appears. Create a GoatCounter API key with only
-   *Read statistics* (username → API) and paste it there once. It's stored only in that browser.
+   *Read statistics* for this site (username → API) and paste it there once. It's saved in a private file in the admin's
+   own Google Drive ("Cash Flow admin settings.json"), so other devices fetch it automatically, and it's cached in that
+   browser. It never goes into `config.js` or GitHub, because anything there is public.
 
 Insights shows visits, app opens per day, new devices, sign-ins, installed app vs browser, screens, imports, downloads,
 account and Drive actions, sync health, problems, app versions, operating systems and browsers. When you change

@@ -1,6 +1,6 @@
 /* Cash Flow — app logic. All data lives in this browser's localStorage, stored separately for each signed-in Google account. */
 (function () {
-  const APP_VERSION = '3.8.0'; // keep in step with VERSION in sw.js
+  const APP_VERSION = '3.8.1'; // keep in step with VERSION in sw.js
   const KEY = 'cashflow.v2', OLD_KEY = 'cashflow.v1', THEME_KEY = 'cashflow.theme';
   const ACCOUNTS_KEY = 'cashflow.accounts', CURRENT_KEY = 'cashflow.user', OLD_DRIVE_KEY = 'cashflow.drive';
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -1494,8 +1494,10 @@
      Reading the stats needs a GoatCounter API key that the admin pastes once; it's kept only in this browser.
      There is no personal data to show: the app only ever sends fixed event names (see analytics.js). */
   const ADMIN_HASHES = (((window.CF_CONFIG || {}).adminHashes) || []).map(String);
-  const GC_KEY = 'cashflow.gcKey';
-  let isAdmin = false, inChart = null, inLoading = false, inData = null;
+  // The read key is kept in the admin's own Google Drive (a private file) and cached on the device:
+  // localStorage on a remembered device, only for the tab otherwise. It's never in config.js or the code.
+  const gcKeyName = () => user ? `cashflow.gcKey.${user.sub}` : 'cashflow.gcKey';
+  let isAdmin = false, inChart = null, inLoading = false, inData = null, driveKeyTried = false;
   async function checkAdmin() {
     let ok = false;
     try {
@@ -1506,9 +1508,29 @@
     } catch (e) { ok = false; }
     isAdmin = ok;
     document.querySelectorAll('.nav-admin').forEach(b => (b.hidden = !ok));
+    driveKeyTried = false;
     if (!ok) { inData = null; if (view.page === 'insights') goPage('dash'); }
   }
-  const gcKey = () => { try { return localStorage.getItem(GC_KEY) || ''; } catch (e) { return ''; } };
+  const gcKey = () => { try { return (user && area().getItem(gcKeyName())) || ''; } catch (e) { return ''; } };
+  const setGcKey = k => { try { if (k) area().setItem(gcKeyName(), k); else area().removeItem(gcKeyName()); return true; } catch (e) { return false; } };
+  /** Fetch the saved key from the admin's own Google Drive. manual: started by a click (may open Google's popup). */
+  async function keyFromDrive(manual) {
+    driveKeyTried = true;
+    const btn = $('inKeyDrive'); btn.disabled = true;
+    inStatus('Looking for your saved key in Google Drive…');
+    try {
+      const s = manual ? await session() : sess;
+      if (!CFDrive.valid(s)) throw Object.assign(new Error('auth'), { code: 'auth' });
+      const f = await CFDrive.findAdmin(s);
+      if (!f) return inStatus('No key saved in your Google Drive yet. Paste it below: it will be saved there for your other devices too.');
+      let k = '';
+      try { k = String(JSON.parse(await CFDrive.download(s, f.id)).goatcounterKey || ''); } catch (e) { if (e && e.code) throw e; }
+      if (!k) return inStatus('The saved key in your Google Drive could not be read. Paste it again below.', true);
+      setGcKey(k); inData = null; renderInsights();
+    } catch (e) {
+      inStatus(e && e.code === 'auth' ? 'Tap "Get my key from Google Drive" to fetch your saved key.' : errText(e), e && e.code !== 'auth');
+    } finally { btn.disabled = false; }
+  }
   async function gcGet(path, params) {
     let r;
     try {
@@ -1532,7 +1554,13 @@
     $('inKeyWhere').textContent = `${CFStats.code}.goatcounter.com`;
     const hasKey = !!gcKey();
     $('inKeyBox').hidden = hasKey;
-    if (!hasKey) { $('inBody').hidden = true; return inStatus(''); }
+    if (!hasKey) {
+      $('inBody').hidden = true;
+      // a signed-in admin with a live Google session gets the key from their Drive automatically
+      if (!driveKeyTried && CFDrive.valid(sess) && sess.drive) keyFromDrive(false);
+      else if (!driveKeyTried) inStatus('Your key may already be in your Google Drive: tap "Get my key from Google Drive", or paste it below.');
+      return;
+    }
     if (inData && inData.days === +$('inRange').value) drawInsights(inData); else loadInsights();
   }
   async function loadInsights() {
@@ -1630,16 +1658,34 @@
   }
   $('inRange').onchange = loadInsights;
   $('inRefresh').onclick = loadInsights;
-  $('inKeySave').onclick = () => {
+  $('inKeyDrive').onclick = () => keyFromDrive(true);
+  $('inKeySave').onclick = async () => {
     const k = $('inKey').value.trim();
     if (k.length < 20 || /\s/.test(k)) return toast('That doesn\'t look like a GoatCounter API key.');
-    try { localStorage.setItem(GC_KEY, k); } catch (e) { return toast('This browser could not save the key.'); }
-    $('inKey').value = ''; inData = null; renderInsights();
+    if (!setGcKey(k)) return toast('This browser could not save the key.');
+    $('inKey').value = ''; inData = null;
+    const btn = $('inKeySave'); btn.disabled = true;
+    try {
+      const s = await session();           // straight from the click, so Google's popup is allowed if needed
+      const f = await CFDrive.findAdmin(s);
+      await CFDrive.saveAdmin(s, JSON.stringify({ goatcounterKey: k, site: CFStats.code, savedAt: new Date().toISOString() }), f && f.id);
+      CFStats.once('insights-key-saved');
+      toast('Key saved on this device and in your Google Drive, so your other devices get it too.');
+    } catch (e) {
+      toast(`Key saved on this device only. Not saved in Google Drive: ${errText(e)}`, 8000);
+    } finally { btn.disabled = false; renderInsights(); }
   };
-  $('inKeyForget').onclick = () => {
-    if (!confirm('Remove the GoatCounter API key from this device? You can paste it again any time.')) return;
-    try { localStorage.removeItem(GC_KEY); } catch (e) { /* ignore */ }
-    inData = null; if (inChart) { inChart.destroy(); inChart = null; } renderInsights();
+  $('inKeyForget').onclick = async () => {
+    if (!confirm('Remove the GoatCounter API key from this device and from your Google Drive?\n\nYou can paste it again any time.')) return;
+    setGcKey(''); inData = null; driveKeyTried = true;
+    if (inChart) { inChart.destroy(); inChart = null; }
+    try {
+      const s = await session();
+      const f = await CFDrive.findAdmin(s);
+      if (f) await CFDrive.trash(s, f.id);
+      toast('API key removed from this device and your Google Drive.');
+    } catch (e) { toast(`Removed from this device. Google Drive: ${errText(e)}`, 8000); }
+    renderInsights(); inStatus('');
   };
 
   /* ================= sample data ================= */
