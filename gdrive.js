@@ -1,10 +1,10 @@
-/* Cash Flow: Google sign-in and backup to the user's OWN Google Drive.
+/* Cash Flow: Google sign-in and the Cash Flow data file in the user's OWN Google Drive.
    - Runs entirely in the browser. Data goes straight between this device and Google; Cash Flow has no server.
    - Scopes: "openid email profile" (who is signed in) and "drive.file" (ONLY the files this app created,
      never the rest of the user's Drive).
    - Access tokens live in memory only (about 1 hour) and are never written to storage.
    Setup: the OAuth client ID comes from GOOGLE_CLIENT_ID in .env (locally) or the GitHub repository variable
-   (live site), written into config.js by scripts/make-config.py. See README.md → "Google Drive backup". */
+   (live site), written into config.js by scripts/make-config.py. See README.md → "Settings". */
 window.CFDrive = (function () {
   const CLIENT_ID = String((window.CF_CONFIG && window.CF_CONFIG.googleClientId) || '');
   const DRIVE = 'https://www.googleapis.com/auth/drive.file';
@@ -12,7 +12,7 @@ window.CFDrive = (function () {
   const FILE_NAME = 'Cash Flow backup.json';
   const TAG = 'cashflowBackup';
   const API = 'https://www.googleapis.com/drive/v3', UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
-  const MULTIPART_MAX = 4 * 1024 * 1024; // larger backups use a resumable upload
+  const MULTIPART_MAX = 4 * 1024 * 1024; // larger files use a resumable upload
   let gis = null;
 
   const configured = () => !!CLIENT_ID;
@@ -74,7 +74,7 @@ window.CFDrive = (function () {
     return { sub: String(u.sub), email: u.email || '', name: u.name || u.given_name || '', given: u.given_name || '', picture: u.picture || '' };
   }
 
-  /** The newest Cash Flow backup in this account's Drive, or null. Only files this app created are visible. */
+  /** The Cash Flow data file in this account's Drive, or null. Only files this app created are visible. */
   async function find(s) {
     const q = encodeURIComponent(`appProperties has { key='${TAG}' and value='1' } and trashed=false`);
     const r = await api(s, `${API}/files?q=${q}&orderBy=modifiedTime%20desc&pageSize=1&spaces=drive&fields=files(id,name,modifiedTime,size,appProperties)`);
@@ -82,10 +82,10 @@ window.CFDrive = (function () {
     return f ? { id: f.id, modified: f.modifiedTime, size: Number(f.size) || 0, txns: Number((f.appProperties || {}).txns) || 0 } : null;
   }
 
-  /** Create or overwrite the backup file. Drive keeps earlier versions for about 30 days (Manage versions). */
+  /** Create or overwrite the data file. Drive keeps earlier versions for about 30 days (Manage versions). */
   async function save(s, text, info, existingId) {
     const meta = { name: FILE_NAME, appProperties: { [TAG]: '1', txns: String(info.txns), people: String(info.people) } };
-    if (!existingId) Object.assign(meta, { mimeType: 'application/json', description: 'Backup from the Cash Flow app. Restore it in Cash Flow → Settings → Google account & backup.' });
+    if (!existingId) Object.assign(meta, { mimeType: 'application/json', description: 'Your Cash Flow data. The Cash Flow app keeps this file in sync; please do not edit or move it.' });
     const qs = 'fields=id,modifiedTime,size';
     const path = existingId ? `${UPLOAD}/files/${encodeURIComponent(existingId)}` : `${UPLOAD}/files`;
     const method = existingId ? 'PATCH' : 'POST';
@@ -120,10 +120,10 @@ window.CFDrive = (function () {
 
   async function download(s, id) { return (await api(s, `${API}/files/${encodeURIComponent(id)}?alt=media`)).text(); }
 
-  /** Move the backup to the Drive Bin (recoverable there for 30 days). Never touches other files. */
+  /** Move the data file to the Drive Bin (recoverable there for 30 days). Never touches other files. */
   async function trash(s, id) {
     await api(s, `${API}/files/${encodeURIComponent(id)}?fields=id`, { method: 'PATCH', headers: { 'Content-Type': 'application/json; charset=UTF-8' }, body: JSON.stringify({ trashed: true }) });
   }
 
-  return { configured, preload, signIn, valid, userInfo, find, save, download, trash, findAdmin, saveAdmin, FILE_NAME };
+  return { configured, preload, signIn, valid, userInfo, find, save, download, trash, findAdmin, saveAdmin };
 })();

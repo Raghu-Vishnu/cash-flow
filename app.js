@@ -1,6 +1,6 @@
 /* Cash Flow — app logic. Data lives in the user's Google Drive and, per Google account, in this browser's storage. */
 (function () {
-  const APP_VERSION = '3.9.0'; // keep in step with VERSION in sw.js
+  const APP_VERSION = '3.9.1'; // keep in step with VERSION in sw.js
   const KEY = 'cashflow.v2', THEME_KEY = 'cashflow.theme';
   const ACCOUNTS_KEY = 'cashflow.accounts', CURRENT_KEY = 'cashflow.user', SESSION_USER = 'cashflow.sessionUser';
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -978,7 +978,7 @@
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   };
   /** Parse and validate Cash Flow data (the Drive file); throws if it isn't Cash Flow data. */
-  function parseBackup(text) {
+  function parseData(text) {
     let d = JSON.parse(text);
     if (!d || typeof d !== 'object') throw 0;
     if (d.version !== 2) throw 0;
@@ -1210,7 +1210,7 @@
         const f = await CFDrive.find(s);
         let remote = null;
         if (f && f.modified !== meta.remoteModified) {
-          try { remote = parseBackup(await CFDrive.download(s, f.id)); upgradeData(remote); }
+          try { remote = parseData(await CFDrive.download(s, f.id)); upgradeData(remote); }
           catch (e) { if (e && e.code) throw e; throw new Error('Your Google Drive file is damaged, so it was left untouched. In Profile, delete the Drive copy, then turn sync back on.'); }
         }
         // a brand-new device with nothing on it simply takes the Drive copy
@@ -1505,7 +1505,7 @@
   /* ================= contact support (opens the user's email app; ticket tracking is a future item) ================= */
   const SUPPORT_EMAIL = String(((window.CF_CONFIG || {}).supportEmail) || '').trim();
   function supportText() {
-    const dev = [standalone() ? 'installed app' : 'browser', /android/i.test(navigator.userAgent) ? 'Android' : /iphone|ipad|ipod/i.test(navigator.userAgent) ? 'iPhone/iPad' : /mac/i.test(navigator.platform) ? 'Mac' : /win/i.test(navigator.platform) ? 'Windows' : 'other'].join(', ');
+    const dev = [standalone() ? 'installed app' : 'browser', /android/i.test(navigator.userAgent) ? 'Android' : isIOS() ? 'iPhone/iPad' : /mac/i.test(navigator.platform) ? 'Mac' : /win/i.test(navigator.platform) ? 'Windows' : 'other'].join(', ');
     const subject = `[Cash Flow] ${$('spTopic').value}`;
     const body = [`Topic: ${$('spTopic').value}`, '', 'What happened:', $('spWhat').value.trim(), '',
       'Steps to see it:', $('spSteps').value.trim() || '(not given)', '', '---', `App version: ${APP_VERSION}`, `Device: ${dev}`].join('\n');
@@ -1795,14 +1795,14 @@
   /* ================= installable app (PWA) ================= */
   let installEvt = null;
   const standalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   function renderInstall() {
-    const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     const btn = $('installBtn'), hint = $('installHint');
     btn.hidden = !installEvt;
     $('installCard').hidden = standalone(); // already installed: nothing to do
     if (location.protocol === 'file:') hint.textContent = 'Open Cash Flow from its web address (not a file) to install it.';
     else if (installEvt) hint.textContent = 'Open Cash Flow like a regular app, even offline.';
-    else if (ios) hint.textContent = 'In Safari, tap Share, then "Add to Home Screen".';
+    else if (isIOS()) hint.textContent = 'In Safari, tap Share, then "Add to Home Screen".';
     else hint.textContent = 'In your browser menu, choose "Install app" or "Add to Home screen".';
   }
   window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; renderInstall(); });
@@ -1814,18 +1814,23 @@
     installEvt = null; renderInstall();
   };
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+    // Updates install in the background and take over by themselves; the page then reloads once into the new
+    // version. If the user is in the middle of something (a dialog open, a sync or a sign-in running), ask instead.
     navigator.serviceWorker.register('sw.js').then(reg => {
-      const offerUpdate = w => toast('A new version of Cash Flow is ready.', 15000, { label: 'Reload', fn: () => w.postMessage('skipWaiting') });
-      if (reg.waiting && navigator.serviceWorker.controller) offerUpdate(reg.waiting);
-      reg.addEventListener('updatefound', () => {
-        const w = reg.installing;
-        w && w.addEventListener('statechange', () => { if (w.state === 'installed' && navigator.serviceWorker.controller) offerUpdate(w); });
-      });
+      if (reg.waiting) reg.waiting.postMessage('skipWaiting'); // an older version may still be waiting its turn
+      const check = () => reg.update().catch(() => {});
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
+      setInterval(check, 30 * 60 * 1000);
     }).catch(() => { /* offline support unavailable; the app still works */ });
-    // reload only when an UPDATE takes over (not on the very first install)
-    const hadController = !!navigator.serviceWorker.controller;
+    const hadController = !!navigator.serviceWorker.controller; // false on the very first install: nothing to reload
     let reloaded = false;
-    navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController && !reloaded) { reloaded = true; location.reload(); } });
+    const reloadNow = () => { if (!reloaded) { reloaded = true; location.reload(); } };
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController || reloaded) return;
+      const midTask = document.querySelector('dialog[open]') || busy || syncing;
+      if (midTask && document.visibilityState === 'visible') toast('Cash Flow was updated.', 30000, { label: 'Reload', fn: reloadNow });
+      else reloadNow();
+    });
   }
   renderInstall();
   // ask the browser not to clear this app's data when the device is low on space (Chrome/Edge/Android/Firefox)

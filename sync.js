@@ -81,5 +81,5 @@ window.CFSync = (function () {
     return true;
   }
 
-  return { fp, fingerprint, merge, same };
+  return { fingerprint, merge, same };
 })();

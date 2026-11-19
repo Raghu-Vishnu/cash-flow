@@ -1,6 +1,7 @@
 /* Service worker: makes Cash Flow installable and fully usable offline.
-   Bump VERSION whenever any app file changes so phones pick up the update. */
-const VERSION = 'cashflow-v3.9.0';
+   Bump VERSION whenever any app file changes (keep APP_VERSION in app.js in step). A new version takes over
+   by itself (skipWaiting), and the page reloads once into it (see the controllerchange handler in app.js). */
+const VERSION = 'cashflow-v3.9.1';
 const SHELL = [
   './', 'index.html', 'privacy.html', 'styles.css', 'app.js', 'parser.js', 'gdrive.js', 'sync.js', 'analytics.js', 'manifest.webmanifest',
   'vendor/chart.umd.min.js', 'vendor/xlsx.full.min.js', 'vendor/pdf.min.js', 'vendor/pdf.worker.min.js', 'vendor/jspdf.umd.min.js', 'vendor/jspdf.plugin.autotable.min.js',
@@ -9,7 +10,8 @@ const SHELL = [
 const FONT_CACHE = 'cashflow-fonts';
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)));
+  // cache: 'reload' skips the browser's HTTP cache, so a new version never stores stale copies of old files
+  e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL.map(u => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', e => {

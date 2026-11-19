@@ -1,109 +1,86 @@
 # Cash Flow – Smart Finance Manager
 
-An installable app (PWA) for Android, iPhone/iPad, macOS and Windows. Your statements are processed on your
-device. Nothing is uploaded, unless you choose to back up to your own Google Drive. The design follows Google's Material Design 3, with Apple's iOS guidelines for phones.
-
-## Open it
-| How | Works offline | Can install as an app |
-|---|---|---|
-| Double-click `index.html` | ✓ (after first load of fonts) | ✗ |
-| **Mac:** double-click `Start Cash Flow.command` · **Windows:** double-click `Start Cash Flow (Windows).bat` (needs Python) | ✓ | ✓ (Chrome / Edge → install icon in the address bar) |
-| Host the folder on any HTTPS site (e.g. GitHub Pages, Netlify) and open the link on your phone | ✓ | ✓ (Android: "Install app"; iPhone: Share → Add to Home Screen) |
-
-> The copy kept on a device is per browser *and* per address (file, localhost and a hosted link are separate). Sign in
-> with the same Google account and **Sync** to bring the same data to any of them.
+Track income, expenses and investments from your own bank statements (CSV, Excel or PDF). An installable web app (PWA)
+for Android, iPhone/iPad, Mac and Windows. Statements are read on your device; your data is kept in **your own Google
+Drive**. There is no Cash Flow server.
 
 ## Using it
-0. **Sign in with Google** the first time you open Cash Flow on a device. Your data is saved in your own Google Drive and kept in step
-   across devices. Tick **Remember this device** on your own phone or laptop to keep a copy there (opens instantly, works offline).
-1. **Profile** (tap your initial, top right) → **People & bank accounts:** add people (you, family) and their bank accounts.
-2. **Upload** (the button at the top of the left rail on desktop, the round button at the bottom-right on phones): pick the account and drop CSV/Excel/PDF statements.
-   Every file is checked against the account number, and its running balance is verified so missing transactions are flagged.
-3. **Dashboard:** year & month, last 30 days / 3 / 6 months, financial year, or custom dates. Tap a bar or a category to drill in.
-4. **Transactions:** tap any transaction to change its category (remembered for that merchant) or delete it (with undo).
-5. **Profile:** sync status and **Sync now**, Remember this device, **Help & support** (contact support, statement
-   diagnostics, privacy), Change Google account, Delete Drive copy, Sign out. The ☁ button in the header shows the sync state.
-6. **Settings:** appearance, categories and merchant rules (collapsed), **Download transactions** (CSV, Excel or PDF for any
-   person, account and period), usage counts switch, delete all data.
-7. **Investments** (Stocks, Mutual funds / SIP, Gold, Other investments) count as **Invested**, not as spending.
-   Money coming back (redemptions, maturity) goes to **From investments** and reduces Invested.
-   Dashboard: Income · Expenses · Invested · Left over (= income − expenses − invested).
-8. **Profile → Help & support → Statement not read correctly?** creates an anonymised report if a statement isn't read correctly.
+1. **Sign in with Google.** Tick **Remember this device** on your own phone or laptop to keep a copy there (opens
+   instantly, works offline). Leave it off on shared computers.
+2. **Profile** (tap your initial, top right) → **People & bank accounts:** add people (you, family) and their accounts.
+3. **Upload** statements into an account. Each file's account number is checked and its running balance verified, so
+   missing transactions are flagged.
+4. **Dashboard:** Income · Expenses · **Invested** · Left over, by month, year, financial year or custom dates. Tap a
+   bar or category to drill in. **Transactions:** tap one to change its category (remembered for that merchant) or delete it.
+5. **Investments** (Mutual funds / SIP, Stocks, Gold, Other investments) count as Invested, not as spending. Money coming
+   back (redemptions, maturity) goes to **From investments**.
+6. **Settings:** appearance, categories and merchant rules, **Download transactions** (CSV, Excel or a PDF statement for
+   any person, account and period), usage counts switch, delete all data.
+7. **Profile:** Sync now, Remember this device, **Help & support** (contact support, statement diagnostics, privacy),
+   Change Google account, Delete Drive copy, Sign out. The ☁ button in the header shows the sync state.
 
-## Google sign-in & Drive (one-time setup)
-Sign-in and backup run in the browser. There is no Cash Flow server or account database. Scopes: `openid email profile`
-(who is signed in) and `drive.file` (only the files the app created, nothing else in the Drive).
-Without a client ID, sign-in is skipped and the app works as a single local store.
-
-**How syncing works.** The Drive file is the main copy. Each change is saved to Drive about 2 seconds later while a Google
-session is active (Google's sign-in lasts about an hour, and with no server it can't be renewed without a tap, so the app
-asks you to tap **Sync** when needed). `sync.js` does a 3-way merge against the last synced version, so changes from two
-devices are combined: both sides' additions are kept, deletions stick, and for an item changed on both, the newer edit wins.
-The sign-in token is kept in memory for about an hour and is never saved.
-
-Google needs to know which website is allowed to ask for sign-in. Do this once:
-1. Go to **console.cloud.google.com** and create a project (for example "Cash Flow").
-2. **APIs & Services → Library**: search for **Google Drive API** and click **Enable**.
-3. **Google Auth Platform → Branding** (older consoles call it "OAuth consent screen"): fill in the app name "Cash Flow" and your support email. Audience: **External**.
-4. **Data access → Add or remove scopes**: add `openid`, `.../auth/userinfo.email`, `.../auth/userinfo.profile` and `.../auth/drive.file`, then save.
-5. **Audience**: click **Publish app**. `drive.file` is a non-sensitive scope, so Google doesn't need to review it.
-   If you leave it in "Testing", only the Google accounts you add as test users can sign in.
-6. **Clients → Create client** → type **Web application**. Under **Authorized JavaScript origins**, add
-   `https://raghu-vishnu.github.io` and `http://localhost:8765`. Leave redirect URIs empty, then click Create.
-7. Copy the **Client ID** (it ends in `.apps.googleusercontent.com`). There is no client secret to keep: the app doesn't use one.
-   Never put a client secret in this project.
-
-### Where the Client ID goes (never in the source code)
-| Where | Put it in | Committed? |
+## Running it
+| How | Offline | Installable |
 |---|---|---|
-| Your computer | `.env`: copy `.env.example` to `.env` and set `GOOGLE_CLIENT_ID=…` | No (`.gitignore`) |
-| Live site | GitHub → repo **Settings → Secrets and variables → Actions → Variables** → `GOOGLE_CLIENT_ID` | No |
+| The live site, or any HTTPS host (GitHub Pages, Netlify) | ✓ | ✓ Android: "Install app" · iPhone: Share → Add to Home Screen |
+| **Mac:** `Start Cash Flow.command` · **Windows:** `Start Cash Flow (Windows).bat` (needs Python) → `http://localhost:8765` | ✓ | ✓ |
 
-`scripts/make-config.py` writes `config.js` from these values. `config.js` is generated and never committed. The Mac/Windows
-start scripts run it for you, and the GitHub Actions workflow (`.github/workflows/pages.yml`) runs it on every push.
-For this to work, set **Settings → Pages → Source** to **GitHub Actions**.
+The copy on a device is per browser *and* per address. Sign in with the same Google account to get the same data anywhere.
 
-> A browser app can't hide values from its users: the Client ID is visible in the published `config.js`, as on every site
-> that uses Google sign-in. That's safe by design, because Google only accepts it from the Authorized JavaScript origins above.
-> Keeping it in env keeps it out of the code and the git history, and lets you change it without a code change.
+## Settings (never in the source code)
+All settings come from `.env` on your computer (copy `.env.example`) and from the GitHub repo
+(**Settings → Secrets and variables → Actions**) for the live site. `scripts/make-config.py` writes them into the
+generated `config.js`. The start scripts and the GitHub Actions deploy (`.github/workflows/pages.yml`) run it. For the
+deploy, set **Settings → Pages → Source** to **GitHub Actions**.
 
-With no `GOOGLE_CLIENT_ID` set, Google Drive backup is simply turned off.
+| Name | GitHub type | What it is | Needed for |
+|---|---|---|---|
+| `GOOGLE_CLIENT_ID` | variable | OAuth "Web application" client ID | Sign-in and Drive. Without it, the app keeps data in the browser only |
+| `GOATCOUNTER_CODE` | variable | GoatCounter site code, e.g. `my-cashflow` | Anonymous usage counts |
+| `ADMIN_EMAILS` | **secret** | Admin Gmail addresses, comma-separated (published only as SHA-256 fingerprints) | Insights tab |
+| `SUPPORT_EMAIL` | variable | Support Google Group address | Contact support |
 
-Restoring works on any device with the same Google account. Drive keeps earlier versions of the backup file for
-about 30 days: right-click the file in Drive, then choose **Manage versions**.
+Everything in `config.js` is visible to visitors, as on any website. That's fine for these values: the Client ID only works
+from your authorised addresses, and the GoatCounter code can't read stats. Never put a client secret or an API key there.
 
-## Anonymous usage counts & admin Insights (optional)
-Cash Flow can count actions **anonymously** with [GoatCounter](https://www.goatcounter.com) (free, no cookies, no IP
-addresses stored). `analytics.js` sends **fixed event names only** (for example `download-pdf`, `import-ok-csv`,
-`sync-error-offline`), never names, emails, amounts, transactions, account details or file names. Users can turn it off in
-Settings. It also starts off when the browser sends Do Not Track or Global Privacy Control, and is never sent from localhost.
+### Google sign-in (once)
+1. **console.cloud.google.com:** create a project, then **APIs & Services → Library → Google Drive API → Enable**.
+2. **Google Auth Platform → Branding:** app name "Cash Flow", support email, home page and privacy policy links
+   (`…/cash-flow/` and `…/cash-flow/privacy.html`), authorised domain `raghu-vishnu.github.io`. Leave the logo empty.
+3. **Data access:** add `openid`, `userinfo.email`, `userinfo.profile` and `drive.file`. **Audience:** External → **Publish app**.
+4. **Clients → Create client → Web application**, Authorized JavaScript origins `https://raghu-vishnu.github.io` and
+   `http://localhost:8765`. Copy the Client ID into `GOOGLE_CLIENT_ID`.
 
-1. Sign up at goatcounter.com and pick a site code, e.g. `cashflow` (gives `cashflow.goatcounter.com`).
-2. In GoatCounter **Settings**: under data collection, untick what you don't need (for example *Region*). Under
-   **Tracking → Ignore IPs**, you can add your own IP if you don't want to count yourself.
-3. Set `GOATCOUNTER_CODE` in `.env` and as a GitHub **repository variable**.
-4. Set `ADMIN_EMAILS` (your Gmail; comma-separated for several) in `.env` and as a GitHub **repository secret**.
-   Only SHA-256 fingerprints of these go into `config.js`, so the published site never shows the addresses.
-5. Push. Sign in with an admin Gmail: an **Insights** tab appears. Create a GoatCounter API key with only
-   *Read statistics* for this site (username → API) and paste it there once. It's saved in a private file in the admin's
-   own Google Drive ("Cash Flow admin settings.json"), so other devices fetch it automatically, and it's cached in that
-   browser. It never goes into `config.js` or GitHub, because anything there is public.
+### Usage counts and Insights (optional)
+Sign up at goatcounter.com, set `GOATCOUNTER_CODE` and `ADMIN_EMAILS`, and push. Sign in with an admin Gmail and open
+**Insights**. Paste a GoatCounter API key that has only *Read statistics* for this site. It's saved in the admin's own Drive
+("Cash Flow admin settings.json"), so other devices pick it up, and never goes into `config.js` or GitHub.
 
-Insights shows visits, app opens per day, new devices, sign-ins, installed app vs browser, screens, imports, downloads,
-account and Drive actions, sync health, problems, app versions, operating systems and browsers. When you change
-`APP_VERSION` in `app.js`, keep it in step with `VERSION` in `sw.js`.
+### Contact support (optional)
+Set `SUPPORT_EMAIL`. The form opens the user's email app with a template (topic, what happened, steps, app version,
+device type). In Google Groups, set **Who can post → Anyone on the web**. Ticket tracking is a future item.
 
-## Contact support (optional)
-Set `SUPPORT_EMAIL` (your support Google Group address) in `.env` and as a GitHub repository **variable**. **Profile → Help &
-support → Contact support** then opens the user's email app with a template (topic, what happened, steps, app version,
-device type) addressed to it. Make sure the group accepts email from outside the organisation. Ticket tracking is a future item.
+## How it works
+- **Privacy:** scopes are `openid email profile` and `drive.file` (only the file the app created). Google's access token
+  lives in memory for about an hour and is never saved.
+- **Sync:** the Drive file is the main copy. Changes save to Drive about 2 seconds later while a Google session is active.
+  Without a server, the session can't renew without a tap, so the app asks you to tap **Sync** when needed. `sync.js`
+  merges against the last synced version: both devices' additions are kept, deletions stick, and the newer edit wins.
+- **Usage counts:** `analytics.js` sends fixed event names only (e.g. `download-pdf`), never personal or financial data.
+  Users can turn it off in Settings; it starts off with Do Not Track / Global Privacy Control and never runs on localhost.
+- **Updates:** a new version installs in the background and takes over by itself; the page reloads once (or offers
+  **Reload** if a dialog is open).
 
 ## For developers
-- `parser.js`: statement reading (CSV/Excel/PDF with layout detection), verification, categorisation, anonymiser
-- `config.js`: generated settings (see above), never edited by hand · `scripts/make-config.py` builds it
-- `analytics.js`: anonymous usage counts (GoatCounter) · admin Insights page lives in `app.js`
-- `gdrive.js`: Google sign-in + Drive REST API (no server) · `sync.js`: 3-way merge of device and Drive data
-- `vendor/jspdf*.js`: jsPDF 2.5.1 + AutoTable 3.8.2 (MIT) for PDF statements, loaded only when needed
-- `app.js`: UI logic · `styles.css`: Material 3 theme · `sw.js`: offline cache · `manifest.webmanifest`: app install info
-- `vendor/`: Chart.js 4.4.1, SheetJS 0.18.5, pdf.js 3.11.174 (bundled so the app works offline)
-- **When you change any file, bump `VERSION` in `sw.js`** so installed apps pick up the update.
+| File | What it does |
+|---|---|
+| `app.js` | UI: dashboard, transactions, imports, settings, profile, sync, downloads, Insights |
+| `parser.js` | Reads statements (CSV/Excel/PDF layout detection), verifies balances, categorises, anonymises |
+| `gdrive.js` · `sync.js` | Google sign-in and Drive REST calls · 3-way merge of device and Drive data |
+| `analytics.js` | Anonymous usage counts (GoatCounter) |
+| `sw.js` · `manifest.webmanifest` | Offline cache and automatic updates · install info |
+| `styles.css` | Material 3 theme, light/dark, phone layout |
+| `vendor/` | Chart.js 4.4.1, SheetJS 0.18.5, pdf.js 3.11.174, jsPDF 2.5.1 + AutoTable 3.8.2 (bundled for offline use) |
+| `icons/` | App icons; `icon.svg` and `maskable.svg` are the sources of the PNGs |
+
+**Releasing:** bump `APP_VERSION` in `app.js` and `VERSION` in `sw.js` together, then push. Installed apps update by themselves.
