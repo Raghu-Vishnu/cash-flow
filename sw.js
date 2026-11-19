@@ -1,7 +1,7 @@
 /* Service worker: makes Cash Flow installable and fully usable offline.
    Bump VERSION whenever any app file changes (keep APP_VERSION in app.js in step). A new version takes over
    by itself (skipWaiting), and the page reloads once into it (see the controllerchange handler in app.js). */
-const VERSION = 'cashflow-v3.9.1';
+const VERSION = 'cashflow-v1.0.0';
 const SHELL = [
   './', 'index.html', 'privacy.html', 'styles.css', 'app.js', 'parser.js', 'gdrive.js', 'sync.js', 'analytics.js', 'manifest.webmanifest',
   'vendor/chart.umd.min.js', 'vendor/xlsx.full.min.js', 'vendor/pdf.min.js', 'vendor/pdf.worker.min.js', 'vendor/jspdf.umd.min.js', 'vendor/jspdf.plugin.autotable.min.js',

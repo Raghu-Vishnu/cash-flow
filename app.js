@@ -1,6 +1,6 @@
 /* Cash Flow — app logic. Data lives in the user's Google Drive and, per Google account, in this browser's storage. */
 (function () {
-  const APP_VERSION = '3.9.1'; // keep in step with VERSION in sw.js
+  const APP_VERSION = '1.0.0'; // keep in step with VERSION in sw.js
   const KEY = 'cashflow.v2', THEME_KEY = 'cashflow.theme';
   const ACCOUNTS_KEY = 'cashflow.accounts', CURRENT_KEY = 'cashflow.user', SESSION_USER = 'cashflow.sessionUser';
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -35,10 +35,8 @@
   const dataKey = (u = user) => u ? `${KEY}.${u.sub}` : KEY;
   const metaKey = (u = user) => `cashflow.sync.${u.sub}`;
   const gated = () => signInRequired() && !user;
-  /** Data saved on this device before sign-in existed (or when sign-in isn't set up). */
-  function legacyData() { const d = get(LS(), KEY); return d && d.version === 2 ? d : null; }
   function load() {
-    if (!user) return legacyData() || fresh();
+    if (!user) { const d = get(LS(), KEY); return d && d.version === 2 ? d : fresh(); } // sign-in not set up: this browser only
     const d = get(area(user), dataKey());
     return d && d.version === 2 ? d : fresh();
   }
@@ -50,30 +48,7 @@
     if (user && !(opts && opts.noSync)) markDirty();
   }
 
-  /** One-time upgrade (Nov 2026): investments became their own kind. "Investments" becomes "Other investments"
-      (so existing transactions stay put) and Stocks, Mutual funds / SIP, Gold and From investments are added.
-      Safe to run any number of times; returns true when it changed something. */
-  function upgradeData(d) {
-    if (!d || !Array.isArray(d.categories) || d.categories.some(c => c.invest)) return false;
-    const defs = clone(FT.DEFAULT_CATEGORIES.filter(c => c.invest && !d.categories.some(x => x.name === c.name && x.name !== 'Investments')));
-    const other = defs.find(c => c.name === 'Other investments');
-    const at = d.categories.findIndex(c => c.name === 'Investments' && c.type === 'debit');
-    if (at >= 0) {
-      const moved = new Set(defs.filter(c => c !== other).flatMap(c => c.keywords));
-      if (other) other.keywords = [...new Set([...d.categories[at].keywords.filter(k => !moved.has(k)), ...other.keywords])];
-      d.categories.splice(at, 1);
-    }
-    const firstDebit = d.categories.findIndex(c => c.type === 'debit');
-    d.categories.splice(at >= 0 ? at : Math.max(0, firstDebit), 0, ...defs.filter(c => c.type === 'debit'));
-    const sal = d.categories.findIndex(c => c.name === 'Salary');
-    d.categories.splice(sal >= 0 ? sal + 1 : 0, 0, ...defs.filter(c => c.type === 'credit'));
-    for (const t of d.txns) if (t.category === 'Investments') t.category = 'Other investments';
-    for (const k in d.rules) if (d.rules[k] === 'Investments') d.rules[k] = 'Other investments';
-    return true;
-  }
   let db = load();
-  const upgradedAtLoad = upgradeData(db);
-  if (upgradedAtLoad && user) put(area(user), dataKey(), db);
   let compiled, investSet;
   const recompile = () => { compiled = FT.compileCategories(db.categories); investSet = new Set(db.categories.filter(c => c.invest).map(c => c.name)); };
   recompile();
@@ -1210,7 +1185,7 @@
         const f = await CFDrive.find(s);
         let remote = null;
         if (f && f.modified !== meta.remoteModified) {
-          try { remote = parseData(await CFDrive.download(s, f.id)); upgradeData(remote); }
+          try { remote = parseData(await CFDrive.download(s, f.id)); }
           catch (e) { if (e && e.code) throw e; throw new Error('Your Google Drive file is damaged, so it was left untouched. In Profile, delete the Drive copy, then turn sync back on.'); }
         }
         // a brand-new device with nothing on it simply takes the Drive copy
@@ -1299,27 +1274,18 @@
   function enterAccount(u, remember) {
     const known = knownAccounts()[u.sub];
     const rec = { sub: u.sub, email: u.email, name: u.name, given: u.given, remember: !!(remember || known) };
-    let d = get(area(rec), dataKey(rec)), adopted = false;
+    let d = get(area(rec), dataKey(rec));
     if (!(d && d.version === 2)) {
-      d = null;
-      const legacy = legacyData();
-      if (legacy && (legacy.txns.length || legacy.accounts.length) &&
-          confirm(`This device has Cash Flow data from before sign-in (${legacy.txns.length} transactions).\n\nMove it into ${u.email}?\n\nChoose Cancel if it belongs to someone else. It stays on this device for them.`)) {
-        d = legacy; adopted = true; put(LS(), KEY, null);
-      }
-      d = d || fresh();
-      if (d.profiles.length === 1 && d.profiles[0].name === 'Me' && firstName(rec)) d.profiles[0].name = firstName(rec);
+      d = fresh();
+      if (firstName(rec)) d.profiles[0].name = firstName(rec);
     }
-    upgradeData(d);
     setUser(rec);
     db = d; recompile();
     put(area(rec), dataKey(rec), db);
-    if (adopted) setMeta({ dirty: true, editedAt: Date.now() });
     Object.assign(view, { page: 'dash', profile: db.profiles[0].id, acct: 'all', cat: '' });
     initFilters(false); renderGate(); renderAll();
     toast(`Signed in as ${u.email}.`);
     CFStats.event(rec.remember ? 'signin-remembered' : 'signin-shared-computer');
-    if (adopted) CFStats.event('signin-moved-old-data');
     if (CFDrive.valid(sess) && sess.drive) syncNow(false);
     else { toast('To load your data from Google Drive, tap Sync and tick the Google Drive box.', 12000, { label: 'Sync', fn: () => syncNow(true) }); }
   }
@@ -1640,7 +1606,7 @@
   const LABELS = {
     'app-open': 'App opened', 'first-open-device': 'New device (first open)', 'app-installed': 'App installed',
     'open-installed-app': 'Opened as installed app', 'open-in-browser': 'Opened in a browser',
-    'signin-remembered': 'Sign-in: remembered device', 'signin-shared-computer': 'Sign-in: shared computer', 'signin-moved-old-data': 'Sign-in moved old data',
+    'signin-remembered': 'Sign-in: remembered device', 'signin-shared-computer': 'Sign-in: shared computer',
     'import-ok-pdf': 'PDF imported', 'import-ok-csv': 'CSV imported', 'import-ok-excel': 'Excel imported',
     'import-failed-pdf': 'PDF could not be read', 'import-failed-csv': 'CSV could not be read', 'import-failed-excel': 'Excel could not be read',
     'import-empty-pdf': 'PDF had no transactions', 'import-empty-csv': 'CSV had no transactions', 'import-empty-excel': 'Excel had no transactions',
@@ -1692,7 +1658,7 @@
           scales: { x: { grid: { display: false }, ticks: { color: css('--text-2'), maxRotation: 0, autoSkip: true, maxTicksLimit: 10 } },
             y: { beginAtZero: true, ticks: { precision: 0, color: css('--text-2') }, grid: { color: css('--grid') } } } } });
     }
-    countList($('inDevices'), ['open-installed-app', 'open-in-browser', 'signin-remembered', 'signin-shared-computer', 'app-installed', 'signin-moved-old-data'].map(p => [label(p), n(p)]));
+    countList($('inDevices'), ['open-installed-app', 'open-in-browser', 'signin-remembered', 'signin-shared-computer', 'app-installed'].map(p => [label(p), n(p)]));
     countList($('inScreens'), rows(p => p.startsWith('/')));
     countList($('inImports'), rows(p => p.startsWith('import-')));
     countList($('inDownloads'), rows(p => p.startsWith('download-')));
@@ -1848,6 +1814,5 @@
   window.addEventListener('error', () => CFStats.once('error-js'));
   window.addEventListener('unhandledrejection', () => CFStats.once('error-js'));
   checkAdmin();
-  if (upgradedAtLoad && user) markDirty();
   save({ noSync: true }); // persists a migrated v1 store in the new format (skipped while nobody is signed in)
 })();

@@ -82,5 +82,24 @@ device type). In Google Groups, set **Who can post → Anyone on the web**. Tick
 | `styles.css` | Material 3 theme, light/dark, phone layout |
 | `vendor/` | Chart.js 4.4.1, SheetJS 0.18.5, pdf.js 3.11.174, jsPDF 2.5.1 + AutoTable 3.8.2 (bundled for offline use) |
 | `icons/` | App icons; `icon.svg` and `maskable.svg` are the sources of the PNGs |
+| `tests/` | Automated tests (see below) |
 
-**Releasing:** bump `APP_VERSION` in `app.js` and `VERSION` in `sw.js` together, then push. Installed apps update by themselves.
+### Tests
+```
+node tests/run-all.mjs            # everything (about 3 minutes)
+node tests/run-all.mjs t-sync     # one suite
+```
+Needs Node 22+ and Google Chrome (set `CHROME=/path/to/chrome` if it's elsewhere). The tests drive the real app in headless
+Chrome with fake Google sign-in, Drive and GoatCounter (`tests/harness.mjs`), so no accounts are needed.
+Screenshots and downloads go to `tests/.output/` (not committed).
+
+| Suite | Covers |
+|---|---|
+| `t-merge` | 3-way merge rules |
+| `t-sync` | Sync across devices, remember device, offline, delete Drive copy, sign out, change account, CSV/Excel/PDF |
+| `t-insights` | Usage counts privacy (every request checked), opt-out, Do Not Track, admin Insights, API key in Drive |
+| `t-invest` | Investments, dashboard totals, Profile/Settings, contact support |
+| `t-update` | Real offline cache: new versions take over by themselves, fresh files, offline, waits when a dialog is open |
+
+**Releasing:** run the tests, bump `APP_VERSION` in `app.js` and `VERSION` in `sw.js` together, then push. Installed apps
+update by themselves.

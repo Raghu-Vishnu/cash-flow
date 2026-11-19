@@ -7,3 +7,6 @@
 !.env.example
 # generated from .env / the GitHub variable by scripts/make-config.py
 config.js
+
+# test output (screenshots, downloads)
+tests/.output/
